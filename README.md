@@ -15,9 +15,17 @@ XESS5 is being developed around actual model inference, graphics-frame contracts
 
 ## Project progress
 
-**Overall engineering estimate toward a complete, live, physically validated neural renderer:**
+**Overall engineering estimate toward a complete, live, physically validated neural renderer: 35%**
 
-`███████░░░░░░░░░░░░░` **35%**
+```text
+                /▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░/|
+               /____________________________/ |
+               |██████████░░░░░░░░░░░░░░░░░░| |
+               |██████████░░░░░░░░░░░░░░░░░░| /
+               |____________________________|/
+```
+
+*3D-style isometric progress bar · 35% estimated roadmap completion*
 
 This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works.
 
