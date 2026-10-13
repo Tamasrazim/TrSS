@@ -136,3 +136,19 @@ def test_multi_input_engine_recompiles_after_resolution_change(monkeypatch, tmp_
     })
 
     assert len(core.compiled_models) == 2
+
+
+
+def test_multi_input_engine_rejects_complex_input_without_coercing(monkeypatch, tmp_path):
+    core = MultiInputCore(model=FakeModel(inputs=[
+        [1, 3, None, None],
+        [1, 1, None, None],
+    ]))
+    model_file = install_tensor_openvino(monkeypatch, tmp_path, core)
+    engine = TensorInferenceEngine(model_file, device="GPU.1")
+
+    with pytest.raises(ModelContractError, match="real-valued numeric"):
+        engine.infer({
+            "input_0": np.ones((1, 3, 4, 4), dtype=np.complex64),
+            "input_1": np.zeros((1, 1, 4, 4), dtype=np.float32),
+        })
