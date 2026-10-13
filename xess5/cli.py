@@ -131,10 +131,11 @@ def _run_devices() -> int:
 def _run_inspect(args: argparse.Namespace) -> int:
     report = inspect_model(args.model)
     print(json.dumps(report, indent=2))
-    if not report["supported_by_current_image_engine"]:
+    if not report["rank_four_single_input_output_candidate"]:
         print(
-            "This model needs the multi-input tensor engine or a model-specific adapter; "
-            "the convenience image command cannot infer its tensor semantics automatically.",
+            "This model is not a one-input/one-output rank-four candidate for the "
+            "convenience image command. Inspect its port definitions and use "
+            "infer-tensors or a model-specific adapter.",
             file=sys.stderr,
         )
     return 0
