@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image
 
 from .backends.openvino_backend import BackendUnavailable, load_openvino, resolve_device
-from .contracts import Layout, image_to_tensor, tensor_to_image
+from .contracts import ChannelOrder, Layout, image_to_tensor, tensor_to_image
 
 
 class ModelContractError(RuntimeError):
@@ -128,15 +128,23 @@ class ImageInferenceEngine:
         layout: Layout = "NCHW",
         input_range: tuple[float, float] = (0.0, 1.0),
         output_range: tuple[float, float] = (0.0, 1.0),
+        input_channel_order: ChannelOrder = "RGB",
+        output_channel_order: ChannelOrder = "RGB",
     ) -> None:
         self.model_path = Path(model_path).expanduser().resolve()
         self.device = device
         self.layout = layout
         self.input_range = input_range
         self.output_range = output_range
+        self.input_channel_order = input_channel_order
+        self.output_channel_order = output_channel_order
 
         if layout not in ("NCHW", "NHWC"):
             raise ModelContractError(f"Unsupported tensor layout: {layout!r}.")
+        if input_channel_order not in ("RGB", "BGR"):
+            raise ModelContractError(f"Unsupported input channel order: {input_channel_order!r}.")
+        if output_channel_order not in ("RGB", "BGR"):
+            raise ModelContractError(f"Unsupported output channel order: {output_channel_order!r}.")
         for label, value_range in (
             ("input", input_range),
             ("output", output_range),
@@ -289,6 +297,7 @@ class ImageInferenceEngine:
             width=width,
             height=height,
             value_range=self.input_range,
+            channel_order=self.input_channel_order,
             dtype=self._input_dtype,
         )
 
@@ -302,6 +311,7 @@ class ImageInferenceEngine:
             output,
             layout=self.layout,
             value_range=self.output_range,
+            channel_order=self.output_channel_order,
         )
 
         return InferenceResult(
