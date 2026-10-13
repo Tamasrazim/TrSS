@@ -18,13 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from ..rendering.hnet import (
-    HNetControls,
-    HNetContractError,
-    NetworkGeometry,
-    compose_head,
-    make_features,
-)
+from ..rendering.hnet import HNetControls, compose_head, make_features
 
 
 class XMXBackendUnavailable(RuntimeError):
@@ -248,13 +242,15 @@ class XMXFrameEngine:
             raise XMXBackendUnavailable("This XMXFrameEngine is closed or not initialized.")
 
         total_started = perf_counter()
-        color = np.asarray(color, dtype=np.float32)
+        # Let the adapter reject complex or non-numeric input before any cast.
+        source_color = np.asarray(color)
         features, geometry = make_features(
-            color,
+            source_color,
             frame_index=frame_index,
             history=history,
             controls=controls,
         )
+        color = np.asarray(source_color, dtype=np.float32)
         preprocess_ms = (perf_counter() - total_started) * 1000.0
 
         network_height, network_width = features.shape[:2]
