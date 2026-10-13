@@ -105,6 +105,26 @@ def test_color_can_be_converted_to_bgr_and_nhwc():
     assert output[0, 0, 0].tolist() == pytest.approx([-1, -1, 1])
 
 
+def test_bgr_conversion_preserves_rgba_alpha_as_bgra():
+    frame = FramePacket(
+        color=np.asarray([[[10, 20, 30, 40]]], dtype=np.uint8),
+        timestamp=1.0,
+        frame_id=0,
+    )
+    spec = ModelAdapterSpec.from_dict({
+        "version": 1,
+        "inputs": {
+            "rgba": binding(
+                "color", "NHWC", (0, 255), (0, 255), channel_order="BGR"
+            )
+        },
+    })
+
+    output = adapt_frame(frame, spec, {"rgba": (1, 1, 1, 4)})["rgba"]
+
+    assert output[0, 0, 0].tolist() == pytest.approx([30, 20, 10, 40])
+
+
 def test_depth_is_resized_and_expanded_to_a_single_channel():
     frame = make_frame()
     spec = ModelAdapterSpec.from_dict({
