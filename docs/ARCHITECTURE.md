@@ -11,6 +11,7 @@ XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580
 - `xess5/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
 - `xess5/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
 - `xess5/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
+- `xess5/training/`: first-party 10-channel, scale-2 temporal reconstruction architecture, explicit paired-frame manifest/dataset reader, and PyTorch training loop. These checkpoints are a separate format and cannot yet run through the fixed-graph `xmx-frame` backend.
 - `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
 - `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI builds the native runtime, host helpers, and runtime SPIR-V shaders, but does not execute the native backend on a GPU.
 
@@ -56,22 +57,25 @@ Missing inputs remain missing. The package never fills a depth or motion tensor 
 
 ## Next engineering milestones
 
-### 1. Choose and verify the model contract
+### 1. Train and validate the first-party model
+Build scene-separated training and validation manifests from renders and auxiliary buffers whose sources and licences permit training. Train the first-party architecture with `python -m xess5.training.train`, then compare held-out crops and sequences. The `docs/TRAINING.md` document defines depth/motion/history semantics and the explicit reset contract.
+
+### 2. Choose and verify the inference model contract
 Select properly licensed parameters and an architecture relevant to neural graphics. Record exact file hashes, names, input meanings, tensor shapes, color space, normalization, precision, output composition, and the license. If it expects a proprietary runtime or weights that cannot be redistributed, document that boundary rather than bundling it.
 
-### 2. Implement a model-specific adapter
+### 3. Implement a model-specific adapter
 Map `FramePacket` into the actual model's inputs. Implement exact preprocessing, deterministic noise if required, conditioning vectors, depth/motion conventions, and output composition. Check an offline set of frames against known reference outputs before integrating a game.
 
-### 3. Validate on the physical Arc B580
+### 4. Validate on the physical Arc B580
 Record driver, OpenVINO/runtime version, selected device name, resolution, model hash, compile time, inference time, total latency, output image, and VRAM if available. Include a warm-up phase and report median/p95 measurements. The result must be measured on the actual card.
 
-### 4. Add a real frame source
+### 5. Add a real frame source
 Begin with a controlled renderer/capture test and clearly track color space, format, timestamp, depth and motion availability. Measure capture and readback overhead separately from the network. Never fabricate missing buffers.
 
-### 5. Add temporal reprojection
+### 6. Add temporal reprojection
 Use the selected model's real motion convention and previous-frame contract. Invalidate history after scene cuts, camera changes, resolution changes, dropped frames, or invalid data. Test motion, ghosting, disocclusion, and scene resets.
 
-### 6. Add live graphics integration
+### 7. Add live graphics integration
 Only after offline output and performance are correct, build a documented Vulkan integration path. Preview every file change, preserve originals, restore files after cancellation/failure, and verify removal. Do not claim compatibility with anti-cheat protected online games.
 
 ## Build and run
