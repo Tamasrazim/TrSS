@@ -6,9 +6,13 @@ pinned to upstream commit `d29b6652940ae120c0152f0b7d6e50109846f4e3`
 (2026-10-12).
 
 The upstream project's Apache License 2.0 and NOTICE are retained here.
-The upstream files in `src/`, `CMakeLists.txt`, `Makefile`, `LICENSE`,
-`NOTICE`, and `.gitignore` are copied unchanged; XESS5-specific integration
-lives in the first-party `xess5/` package.
+The vendored code is pinned to the commit above. Most upstream files are kept
+unchanged; `src/gpu/libxmx.c` has one XESS5-specific change in Vulkan adapter
+selection, marked by a nearby comment. That change requires one unique Arc-name
+match by default, or one unique match for the optional
+`XESS5_VULKAN_DEVICE` substring. It fails instead of silently selecting the
+first available GPU when the choice is ambiguous or no Arc-named adapter exists.
+First-party model and frame integration remains in the `xess5/` package.
 
 ## Why this source is present
 
