@@ -65,10 +65,10 @@ Use this only for a model that truly expects a single rank-four image tensor and
 For a model whose port semantics you have verified, create a model-specific JSON file using [the adapter template](docs/examples/adapter-template.json), then run a saved frame with the actual auxiliary buffers available to your capture workflow:
 
 ```powershell
-xess5 render-frame --model "models\render-model.onnx" --spec "models\render-adapter.json" --color "frames\frame-0001.png" --depth "frames\depth-0001.npy" --motion "frames\motion-0001.npy" --history "frames\previous-output.npy" --output-dir "work\frame-output" --device ARC --warmup 2 --iterations 10 --report "logs\frame-report.json"
+xess5 render-frame --model "models\render-model.onnx" --spec "models\render-adapter.json" --color "frames\frame-0001.png" --depth "frames\depth-0001.npy" --motion "frames\motion-0001.npy" --history "frames\previous-output.npy" --output-dir "work\frame-output" --preview-output "work\frame.png" --history-output "work\frame-history.npy" --device ARC --warmup 2 --iterations 10 --report "logs\frame-report.json"
 ```
 
-Only provide buffers that actually exist and that the adapter spec requires. Depth and motion encoding, color space, model-specific noise, tensor normalization, temporal reprojection, and output-head composition must match the chosen model's documentation. See [MODEL-ADAPTERS.md](docs/MODEL-ADAPTERS.md). This command processes offline frame files; it does not capture a live game or claim real-time performance.
+Only provide buffers that actually exist and that the adapter spec requires. Preview and history output require an explicit direct-RGB output declaration in the spec; feature planes and packed neural heads need a model-specific composition routine. History output is HWC float32 in the [0, 1] range. Depth and motion encoding, color space, model-specific noise, tensor normalization, temporal reprojection, and output-head composition must match the chosen model's documentation. See [MODEL-ADAPTERS.md](docs/MODEL-ADAPTERS.md). This command processes offline frame files; it does not capture a live game or claim real-time performance.
 
 ### Execute a model with multiple named tensors
 
