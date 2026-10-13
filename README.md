@@ -108,14 +108,17 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
 5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
 6. **Physical hardware validation.** No XESS5 run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
+7. **Native XMX integration.** A pinned Intel Xe2 Vulkan/XMX research backend is now included under `vendor/dlss-nr-intel/`, with fail-closed adapter selection. It remains a source dependency, not an active XESS5 rendering command: its native build, frame runner, model-weight loading, and Python orchestration still need to be connected and tested together.
 
-A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The next real milestone is to match an actually usable neural-rendering model's exact contract and parameters, add its preprocessing and output composition, and measure execution on the physical B580.
+A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The immediate engineering path is to finish the native XMX execution bridge and model-loader contract, validate it with a legally usable model artifact, then measure real-frame latency and visual quality on the physical B580.
 
 ## Research references
 
 - [DLSS-NR on Intel](https://github.com/Uzbekunknown/dlss-nr-on-intel) — experimental Intel Xe2 neural-rendering research with a Vulkan path. Its current code is a research reference; the published project requires separate compatible model material and should not be copied without retaining its Apache-2.0 license and notices.
 - [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
 - [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
+
+The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active XESS5 rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `XESS5_VULKAN_DEVICE` only when its device-name substring matches exactly one Vulkan adapter.
 
 These are technical references, not opaque third-party applications wrapped by XESS5. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
