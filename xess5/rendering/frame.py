@@ -36,8 +36,11 @@ def _array(
         raise FrameValidationError(
             f"{name} must be rank {ndim}; received shape {result.shape!r}."
         )
-    if not np.issubdtype(result.dtype, np.number):
-        raise FrameValidationError(f"{name} must contain numeric values.")
+    if (
+        not np.issubdtype(result.dtype, np.number)
+        or np.issubdtype(result.dtype, np.complexfloating)
+    ):
+        raise FrameValidationError(f"{name} must contain real-valued numeric values.")
     if finite and not np.isfinite(result).all():
         raise FrameValidationError(f"{name} contains NaN or infinite values.")
     return result
