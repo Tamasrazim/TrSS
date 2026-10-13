@@ -17,6 +17,8 @@ from .backends.openvino_backend import BackendUnavailable
 from .contracts import parse_value_range
 from .engine import ImageInferenceEngine, inspect_model, available_devices
 from .tensor_engine import TensorInferenceEngine
+from .rendering import FramePacket
+from .rendering.adapter import AdapterSpecError, ModelAdapterSpec, adapt_frame
 
 
 def _range_argument(value: str) -> tuple[float, float]:
@@ -96,6 +98,31 @@ def _build_parser() -> argparse.ArgumentParser:
     tensor_infer.add_argument("--warmup", type=int, default=2, help="warm-up calls after model compilation")
     tensor_infer.add_argument("--iterations", type=int, default=10, help="measured calls (default: 10)")
     tensor_infer.add_argument("--report", type=Path, help="optional JSON timing report")
+
+    render_frame = commands.add_parser(
+        "render-frame",
+        help="adapt a captured frame and real auxiliary buffers to a multi-input neural model",
+    )
+    render_frame.add_argument("--model", required=True, type=Path, help="local OpenVINO/ONNX model")
+    render_frame.add_argument("--spec", required=True, type=Path, help="explicit JSON model-input adapter spec")
+    render_frame.add_argument("--color", required=True, type=Path, help="captured RGB frame image")
+    render_frame.add_argument("--depth", type=Path, help="optional depth array in .npy format")
+    render_frame.add_argument("--motion", type=Path, help="optional HxWx2 motion-vector .npy")
+    render_frame.add_argument("--noise", type=Path, help="optional HxWx3 noise tensor in .npy")
+    render_frame.add_argument("--history", type=Path, help="optional previous output frame in HxWx3 .npy")
+    render_frame.add_argument("--conditioning", type=Path, help="optional conditioning vector in .npy")
+    render_frame.add_argument("--frame-id", type=int, default=0)
+    render_frame.add_argument("--timestamp", type=float, default=0.0, help="source frame timestamp in seconds")
+    render_frame.add_argument("--scene-id", help="optional stable ID for the current scene")
+    render_frame.add_argument("--camera-cut", action="store_true", help="mark this frame as a temporal discontinuity")
+    render_frame.add_argument("--color-space", choices=("srgb", "linear-srgb", "pq", "hlg", "unknown"), default="unknown")
+    render_frame.add_argument("--depth-encoding", choices=("linear", "device-z", "normalized", "unknown"), default="unknown")
+    render_frame.add_argument("--motion-units", choices=("pixel-per-frame", "normalized", "unknown"), default="unknown")
+    render_frame.add_argument("--device", default="ARC", help="ARC (default) or exact GPU.X ID")
+    render_frame.add_argument("--warmup", type=int, default=2)
+    render_frame.add_argument("--iterations", type=int, default=10)
+    render_frame.add_argument("--output-dir", required=True, type=Path, help="directory for raw model output tensors")
+    render_frame.add_argument("--report", type=Path, help="optional JSON report of preprocessing and inference timings")
     return parser
 
 
@@ -438,6 +465,207 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_npy(path: Path, label: str) -> np.ndarray:
+    """Load a numeric array without enabling object deserialization."""
+    try:
+        value = np.load(path, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Could not load {label} tensor {path}: {exc}") from exc
+    if not isinstance(value, np.ndarray) or value.dtype.hasobject:
+        raise ValueError(f"{label} input {path} is not a numeric NumPy array.")
+    return value
+
+
+def _run_render_frame(args: argparse.Namespace) -> int:
+    """Run one frame through the explicit preprocessing spec and multi-input engine."""
+    if args.warmup < 0:
+        raise ValueError("--warmup cannot be negative.")
+    if args.iterations < 1:
+        raise ValueError("--iterations must be at least 1.")
+    if args.frame_id < 0:
+        raise ValueError("--frame-id must be non-negative.")
+    if not np.isfinite(args.timestamp) or args.timestamp < 0:
+        raise ValueError("--timestamp must be finite and non-negative.")
+    if not args.model.is_file():
+        raise FileNotFoundError(f"Model file does not exist: {args.model}")
+    if not args.spec.is_file():
+        raise FileNotFoundError(f"Adapter spec does not exist: {args.spec}")
+    if not args.color.is_file():
+        raise FileNotFoundError(f"Color frame does not exist: {args.color}")
+
+    named_auxiliary = {
+        "depth": args.depth,
+        "motion_vectors": args.motion,
+        "noise": args.noise,
+        "history": args.history,
+        "conditioning": args.conditioning,
+    }
+    for label, path in named_auxiliary.items():
+        if path is not None and not path.is_file():
+            raise FileNotFoundError(f"{label} input does not exist: {path}")
+
+    # Treat every source file and the model/spec as read-only. Output names
+    # are not known until model ports are inspected, so validate again below.
+    protected = {
+        args.model.expanduser().resolve(),
+        args.spec.expanduser().resolve(),
+        args.color.expanduser().resolve(),
+    }
+    protected.update(
+        path.expanduser().resolve()
+        for path in named_auxiliary.values()
+        if path is not None
+    )
+    resolved_report = args.report.expanduser().resolve() if args.report else None
+    if resolved_report in protected:
+        raise ValueError("Report path must differ from every model/spec/input file.")
+
+    try:
+        with Image.open(args.color) as opened:
+            color = np.asarray(opened.convert("RGB"), dtype=np.uint8).copy()
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError(f"Could not decode color frame {args.color}: {exc}") from exc
+
+    auxiliary: dict[str, np.ndarray | None] = {}
+    for label, path in named_auxiliary.items():
+        auxiliary[label] = _load_npy(path, label) if path is not None and label != "history" else None
+    history = _load_npy(args.history, "history") if args.history is not None else None
+
+    frame = FramePacket(
+        color=color,
+        timestamp=args.timestamp,
+        frame_id=args.frame_id,
+        scene_id=args.scene_id,
+        depth=auxiliary["depth"],
+        motion_vectors=auxiliary["motion_vectors"],
+        noise=auxiliary["noise"],
+        conditioning=auxiliary["conditioning"],
+        camera_cut=args.camera_cut,
+        color_space=args.color_space,
+        depth_encoding=args.depth_encoding,
+        motion_units=args.motion_units,
+    )
+    spec = ModelAdapterSpec.load(args.spec)
+
+    engine_started = perf_counter()
+    engine = TensorInferenceEngine(args.model, device=args.device)
+    engine_load_ms = (perf_counter() - engine_started) * 1000.0
+
+    # A mismatched spec is rejected before running any model inference.
+    model_shapes = engine.input_shapes
+    inputs = adapt_frame(frame, spec, model_shapes, history=history)
+    priming_started = perf_counter()
+    last = engine.infer(inputs)
+    priming_wall_ms = (perf_counter() - priming_started) * 1000.0
+
+    for _ in range(args.warmup):
+        inputs = adapt_frame(frame, spec, model_shapes, history=history)
+        last = engine.infer(inputs)
+
+    preprocessing_ms: list[float] = []
+    inference_ms: list[float] = []
+    end_to_end_ms: list[float] = []
+    for _ in range(args.iterations):
+        call_started = perf_counter()
+        preprocessing_started = perf_counter()
+        inputs = adapt_frame(frame, spec, model_shapes, history=history)
+        preprocessing_ms.append((perf_counter() - preprocessing_started) * 1000.0)
+        last = engine.infer(inputs)
+        inference_ms.append(last.inference_ms)
+        end_to_end_ms.append((perf_counter() - call_started) * 1000.0)
+
+    output_dir = args.output_dir.expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_paths: dict[str, str] = {}
+    seen_stems: set[str] = set()
+    destinations: list[tuple[str, Path, np.ndarray]] = []
+    for index, (name, output) in enumerate(last.outputs.items()):
+        stem = _safe_tensor_filename(name)
+        if stem in seen_stems:
+            stem = f"{stem}_{index}"
+        seen_stems.add(stem)
+        destination = (output_dir / f"{stem}.npy").resolve()
+        if destination in protected or destination == resolved_report:
+            raise ValueError(f"Output tensor path {destination} would overwrite a source or report.")
+        destinations.append((name, destination, output))
+
+    if resolved_report in {destination for _, destination, _ in destinations}:
+        raise ValueError("The JSON report path must differ from every output tensor path.")
+
+    for name, destination, output in destinations:
+        np.save(destination, output, allow_pickle=False)
+        output_paths[name] = str(destination)
+
+    report: dict[str, object] = {
+        "engine": "XESS5",
+        "engine_version": __version__,
+        "operation": "adapter_driven_single_frame_model_inference",
+        "model": last.model_path,
+        "adapter_spec": str(args.spec.resolve()),
+        "device_requested": args.device,
+        "device_selected": last.device,
+        "device_name": last.device_name,
+        "frame": {
+            "color_path": str(args.color.resolve()),
+            "width": frame.width,
+            "height": frame.height,
+            "frame_id": frame.frame_id,
+            "timestamp": frame.timestamp,
+            "scene_id": frame.scene_id,
+            "camera_cut": frame.camera_cut,
+            "color_space": frame.color_space,
+            "depth_encoding": frame.depth_encoding,
+            "motion_units": frame.motion_units,
+            "available_sources": sorted(frame.model_inputs().keys()),
+            "has_previous_history": history is not None,
+        },
+        "engine_load_ms": round(engine_load_ms, 3),
+        "priming_call_wall_ms": round(priming_wall_ms, 3),
+        "priming_compile_ms": round(last.compile_ms, 3),
+        "warmup_calls": args.warmup,
+        "iterations": args.iterations,
+        "preprocessing_ms": {
+            "median": round(float(np.median(preprocessing_ms)), 3),
+            "p95": round(_percentile(preprocessing_ms, 95), 3),
+        },
+        "inference_ms": {
+            "median": round(float(np.median(inference_ms)), 3),
+            "p95": round(_percentile(inference_ms, 95), 3),
+        },
+        "end_to_end_ms": {
+            "median": round(float(np.median(end_to_end_ms)), 3),
+            "p95": round(_percentile(end_to_end_ms, 95), 3),
+        },
+        "input_tensors": {
+            name: {
+                "shape": list(array.shape),
+                "dtype": str(array.dtype),
+                "source": spec.inputs[name].source,
+                "layout": spec.inputs[name].layout,
+            }
+            for name, array in inputs.items()
+        },
+        "output_tensors": {
+            name: {
+                "path": output_paths[name],
+                "shape": list(array.shape),
+                "dtype": str(array.dtype),
+            }
+            for name, array in last.outputs.items()
+        },
+        "note": (
+            "This runs the selected model using a declared preprocessing contract and supplied "
+            "frame buffers. It is not live-game capture, does not synthesize missing depth/motion, "
+            "does not automatically compose arbitrary model outputs into RGB, and does not imply "
+            "DLSS 5 compatibility or an in-game FPS gain."
+        ),
+    }
+    print(json.dumps(report, indent=2))
+    if args.report:
+        _write_json(args.report, report)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -450,8 +678,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_inference(args)
         if args.command == "infer-tensors":
             return _run_tensor_inference(args)
+        if args.command == "render-frame":
+            return _run_render_frame(args)
         parser.error("unknown command")
-    except (BackendUnavailable, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+    except (BackendUnavailable, AdapterSpecError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"XESS5 error: {exc}", file=sys.stderr)
         return 2
     return 0
