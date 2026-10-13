@@ -16,6 +16,7 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Graphics-frame contract:** `FramePacket` carries source color plus only those depth, motion-vector, noise, and conditioning buffers actually supplied by the source, along with color/depth/motion conventions.
 - **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
+- **Specialized HNet-style frame contract:** `xess5/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible model. The graph and trained weights are not bundled, so this does not by itself establish functional equivalence or vendor model compatibility.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, and temporal history without pretending to test real GPU performance.
 
@@ -80,6 +81,17 @@ xess5 infer-tensors --model "models\render-model.onnx" --input "color=work\color
 
 Names must exactly match the model's input ports, and tensors must match the expected dimensions, precision, units, and preprocessing. The engine refuses missing/extra names, non-finite values, and complex inputs. It does not infer depth or motion vectors from color; those buffers must come from a real, documented source or a deliberate model-specific preprocessing stage.
 
+### Run the HNet-style 16-to-4-channel frame adapter
+
+The specialized adapter is for a compatible, user-supplied model that accepts the documented `[1,16,H,W]` feature tensor and emits a `[1,4,H,W]` head. It builds the frame conditioning and applies the documented residual/gate composition around the supplied model. It does not contain model weights or a neural graph.
+
+```powershell
+xess5 inspect --model "models\your-hnet-model.onnx"
+xess5 hnet-frame --model "models\your-hnet-model.onnx" --color "frames\input.png" --output "work\rendered.png" --device ARC --output-layout NCHW --frame-index 0 --style-index 0 --tone-strength 1 --structure-strength 1 --warmup 1 --iterations 5 --history-output "work\next-history.npy" --head-output "work\raw-head.npy" --report "logs\hnet-frame.json"
+```
+
+The command refuses incompatible input/output shapes rather than pretending any rank-four network is the expected graph. A supplied model must also have matching weights, input preprocessing, head output semantics, and legal terms. The report's timing separates model inference from the whole offline frame path; neither is in-game FPS. Previous history is optional for the first frame and, when provided, must be an RGB HWC `.npy` array in the 0..1 range.
+
 ### Run the tests
 
 ```powershell
@@ -90,11 +102,11 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 
 ## Still missing for actual neural rendering
 
-1. **A verified model-specific neural-rendering adapter.** The generic frame adapter is implemented, but the selected graph's exact tensor semantics, noise generation, conditioning, preprocessing, weights, precision, and output composition must match a compatible and legally usable model.
+1. **A verified model-specific neural-rendering model.** The generic JSON adapter and a specialized HNet-style 16-to-4 frame contract are implemented, but the actual graph and legally usable parameters are not bundled. Exact tensor semantics, weights, precision, temporal behavior, and all model-specific post-processing still require verification against a compatible model.
 2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with XESS5.
 3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
-5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet.
+5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
 6. **Physical hardware validation.** No XESS5 run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
 
 A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The next real milestone is to match an actually usable neural-rendering model's exact contract and parameters, add its preprocessing and output composition, and measure execution on the physical B580.
@@ -105,7 +117,7 @@ A generic image model may demonstrate the inference pipeline, but it is not a st
 - [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
 - [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
 
-These are technical references, not opaque third-party applications wrapped by XESS5. Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
+These are technical references, not opaque third-party applications wrapped by XESS5. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
 ## Development rules
 
