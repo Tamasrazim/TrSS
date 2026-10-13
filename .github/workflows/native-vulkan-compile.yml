@@ -20,10 +20,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake gcc libvulkan-dev glslang-tools
 
+      - name: Fetch pinned Vulkan headers for recent Xe2 extensions
+        run: |
+          mkdir -p vendor/dlss-nr-intel/work/vulkan-headers
+          git init vendor/dlss-nr-intel/work/vulkan-headers
+          git -C vendor/dlss-nr-intel/work/vulkan-headers remote add origin https://github.com/KhronosGroup/Vulkan-Headers.git
+          git -C vendor/dlss-nr-intel/work/vulkan-headers fetch --depth 1 origin c46850864f4661461b0f6cb9922c058ffea4915e
+          git -C vendor/dlss-nr-intel/work/vulkan-headers checkout --detach FETCH_HEAD
+
       - name: Configure the vendored native backend
         run: |
           cmake -S vendor/dlss-nr-intel \
             -B vendor/dlss-nr-intel/work/cmake \
+            -DNR_VULKAN_INCLUDE="$GITHUB_WORKSPACE/vendor/dlss-nr-intel/work/vulkan-headers/include" \
             -DNR_BUILD_LAYER=OFF \
             -DNR_BUILD_TESTS=OFF
 
