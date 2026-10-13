@@ -65,6 +65,16 @@ On an Intel GPU, the script uses PyTorch's XPU backend. `--amp` requests BF16 au
 
 Training writes `checkpoint-last.pt`, `checkpoint-best.pt`, and `training-report.json` in the output directory. Without a validation manifest, “best” is selected on training loss, so a separate validation set is strongly recommended. Generated weights and local data are not meant to be committed to the source repository.
 
+## Run a trained checkpoint on an offline frame
+
+After training, run the checkpoint with the same real auxiliary buffers:
+
+```powershell
+python -m xess5.training.infer --checkpoint models/xess5-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/xess5-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
+```
+
+For a non-reset frame, also pass `--history` and `--history-valid`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case. The report includes checkpoint SHA-256, model settings, inference time, full offline frame-path time, and a labelled FPS-equivalent estimate. It is not a measurement of in-game FPS.
+
 ## What this does not do yet
 
 - It does not create or download training frames.
