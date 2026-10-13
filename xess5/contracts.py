@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 
 Layout = Literal["NCHW", "NHWC"]
+ChannelOrder = Literal["RGB", "BGR"]
 
 
 def parse_value_range(value: str) -> tuple[float, float]:
@@ -32,13 +33,23 @@ def image_to_tensor(
     width: int,
     height: int,
     value_range: tuple[float, float] = (0.0, 1.0),
+    channel_order: ChannelOrder = "RGB",
     dtype: np.dtype = np.dtype(np.float32),
 ) -> np.ndarray:
     """Convert an image into a batch-one RGB tensor with a declared value range."""
     if layout not in ("NCHW", "NHWC"):
         raise ValueError(f"Unsupported image layout: {layout!r}")
+    if channel_order not in ("RGB", "BGR"):
+        raise ValueError(f"Unsupported channel order: {channel_order!r}")
     if width < 1 or height < 1:
         raise ValueError("Tensor width and height must be positive.")
+    if (
+        len(value_range) != 2
+        or not np.isfinite(value_range[0])
+        or not np.isfinite(value_range[1])
+        or value_range[0] >= value_range[1]
+    ):
+        raise ValueError("The value range must contain two finite values in ascending order.")
 
     low, high = value_range
     rgb = image.convert("RGB")
@@ -46,6 +57,8 @@ def image_to_tensor(
         rgb = rgb.resize((width, height), Image.Resampling.LANCZOS)
 
     pixels = np.asarray(rgb, dtype=np.float32) / 255.0
+    if channel_order == "BGR":
+        pixels = pixels[:, :, ::-1]
     pixels = pixels * (high - low) + low
 
     if layout == "NCHW":
@@ -58,6 +71,7 @@ def tensor_to_image(
     *,
     layout: Layout,
     value_range: tuple[float, float] = (0.0, 1.0),
+    channel_order: ChannelOrder = "RGB",
 ) -> Image.Image:
     """Convert a batch-one model output into an RGB image."""
     output = np.asarray(tensor)
@@ -80,7 +94,16 @@ def tensor_to_image(
             f"got shape {output.shape!r}."
         )
 
+    if channel_order not in ("RGB", "BGR"):
+        raise ValueError(f"Unsupported channel order: {channel_order!r}")
     low, high = value_range
+    if (
+        not np.isfinite(low)
+        or not np.isfinite(high)
+        or low >= high
+    ):
+        raise ValueError("The value range must contain two finite values in ascending order.")
+
     # NaN and infinities must not turn into random pixels in the saved image.
     output = np.nan_to_num(output.astype(np.float32), nan=low, posinf=high, neginf=low)
     output = np.clip((output - low) / (high - low), 0.0, 1.0)
@@ -91,4 +114,6 @@ def tensor_to_image(
     elif output.shape[2] == 4:
         output = output[:, :, :3]
 
-    return Image.fromarray(np.ascontiguousarray(output), mode="RGB")
+    if channel_order == "BGR":
+        output = output[:, :, ::-1]
+    return Image.fromarray(np.ascontiguousarray(output))
