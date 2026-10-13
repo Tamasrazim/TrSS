@@ -8,13 +8,15 @@ motion-vector reprojection to a model-specific GPU adapter.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Literal, Mapping
 
 import numpy as np
 from numpy.typing import NDArray
 
 
-FloatArray = NDArray[np.floating]
+ColorSpace = Literal["srgb", "linear-srgb", "pq", "hlg", "unknown"]
+DepthEncoding = Literal["linear", "device-z", "normalized", "unknown"]
+MotionUnits = Literal["pixel-per-frame", "normalized", "unknown"]
 
 
 class FrameValidationError(ValueError):
@@ -61,6 +63,9 @@ class FramePacket:
     noise: np.ndarray | None = None
     conditioning: np.ndarray | None = None
     camera_cut: bool = False
+    color_space: ColorSpace = "unknown"
+    depth_encoding: DepthEncoding = "unknown"
+    motion_units: MotionUnits = "unknown"
 
     def __post_init__(self) -> None:
         color = _array(self.color, name="color", ndim=3)
@@ -74,12 +79,32 @@ class FramePacket:
         height, width = color.shape[:2]
         object.__setattr__(self, "color", color)
 
-        if not np.isfinite(self.timestamp) or self.timestamp < 0:
-            raise FrameValidationError("timestamp must be a finite non-negative value.")
-        if self.frame_id < 0:
+        try:
+            timestamp = float(self.timestamp)
+        except (TypeError, ValueError) as exc:
+            raise FrameValidationError("timestamp must be a finite non-negative number.") from exc
+        if not np.isfinite(timestamp) or timestamp < 0:
+            raise FrameValidationError("timestamp must be a finite non-negative number.")
+        object.__setattr__(self, "timestamp", timestamp)
+
+        if (
+            isinstance(self.frame_id, (bool, np.bool_))
+            or not isinstance(self.frame_id, (int, np.integer))
+            or self.frame_id < 0
+        ):
             raise FrameValidationError("frame_id must be a non-negative integer.")
         if self.scene_id is not None and not isinstance(self.scene_id, str):
             raise FrameValidationError("scene_id must be a string or None.")
+        if self.color_space not in ("srgb", "linear-srgb", "pq", "hlg", "unknown"):
+            raise FrameValidationError(f"Unsupported color_space: {self.color_space!r}.")
+        if self.depth_encoding not in ("linear", "device-z", "normalized", "unknown"):
+            raise FrameValidationError(
+                f"Unsupported depth_encoding: {self.depth_encoding!r}."
+            )
+        if self.motion_units not in (
+            "pixel-per-frame", "normalized", "unknown"
+        ):
+            raise FrameValidationError(f"Unsupported motion_units: {self.motion_units!r}.")
 
         if self.depth is not None:
             depth = np.asarray(self.depth)
@@ -191,6 +216,9 @@ class TemporalHistory:
         if self._frame_id is not None and frame.frame_id <= self._frame_id:
             self.reset("frame_order_changed")
             return None
+        if self._frame_id is not None and frame.frame_id != self._frame_id + 1:
+            self.reset("frame_sequence_gap")
+            return None
         if self._timestamp is not None:
             delta = frame.timestamp - self._timestamp
             if delta <= 0:
@@ -210,6 +238,8 @@ class TemporalHistory:
             # prior scene's output, but allow this output to become future history.
             self.reset("camera_cut")
 
+        # Keep the reset reason available for diagnostics until the next frame
+        # successfully consumes history.
         image = _array(output, name="rendered_output", ndim=3)
         if image.shape != (frame.height, frame.width, 3):
             raise FrameValidationError(
@@ -222,4 +252,3 @@ class TemporalHistory:
         self._frame_id = int(frame.frame_id)
         self._scene_id = frame.scene_id
         self._size = frame.size
-        self.last_reset_reason = ""
