@@ -651,9 +651,19 @@ int xmx_init(const char *spv_path)
 		}
 		if (matches != 1) {
 			free(pds);
+			vkDestroyInstance(g.inst, NULL);
+			g.inst = VK_NULL_HANDLE;
 			if (matches > 1)
 				FAIL("XESS5_VULKAN_DEVICE substring matched multiple adapters; use a more specific name", 0);
 			FAIL("XESS5_VULKAN_DEVICE substring matched no Vulkan adapter", 0);
+		}
+		/* Reject a non-Arc override before creating a device. The Python-side
+		 * name check is a second guard, not the first line of hardware selection. */
+		if (!strstr(props.deviceName, "Arc")) {
+			free(pds);
+			vkDestroyInstance(g.inst, NULL);
+			g.inst = VK_NULL_HANDLE;
+			FAIL("XESS5_VULKAN_DEVICE matched a non-Arc adapter; XESS5 requires Intel Arc", 0);
 		}
 	} else {
 		for (uint32_t i = 0; i < n; ++i) {
@@ -666,6 +676,8 @@ int xmx_init(const char *spv_path)
 		}
 		if (matches != 1) {
 			free(pds);
+			vkDestroyInstance(g.inst, NULL);
+			g.inst = VK_NULL_HANDLE;
 			if (matches > 1)
 				FAIL("multiple Vulkan adapters contain 'Arc'; set XESS5_VULKAN_DEVICE to a unique substring", 0);
 			FAIL("no Vulkan adapter name contains 'Arc'; set XESS5_VULKAN_DEVICE to select an adapter explicitly", 0);
