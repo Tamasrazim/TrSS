@@ -146,6 +146,25 @@ class TensorInferenceEngine:
         """Output names available from each inference."""
         return tuple(self._output_names)
 
+
+    @property
+    def input_shapes(self) -> dict[str, tuple[int | None, ...]]:
+        """Return the model's declared input shapes; None denotes a dynamic axis."""
+        result: dict[str, tuple[int | None, ...]] = {}
+        for name, port in zip(self._input_names, self._base_model.inputs):
+            result[name] = tuple(
+                _dimension_length(dimension) for dimension in port.partial_shape
+            )
+        return result
+
+    @property
+    def input_precisions(self) -> dict[str, str]:
+        """Return the model's declared input element types."""
+        return {
+            name: str(port.element_type)
+            for name, port in zip(self._input_names, self._base_model.inputs)
+        }
+
     def _read_device_name(self) -> str:
         try:
             return str(self.core.get_property(self.device, "FULL_DEVICE_NAME"))
