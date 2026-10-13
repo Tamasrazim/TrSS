@@ -1,0 +1,34 @@
+# CMake and compiler output
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Local IDE files
+.vs/
+.vscode/
+.idea/
+
+# Local frame captures and model weights must not accidentally enter Git
+captures/
+models/local/
+*.safetensors
+*.onnx
+*.engine
+*.weights
+*.bin
+
+# Local diagnostic output
+logs/
+*.log
