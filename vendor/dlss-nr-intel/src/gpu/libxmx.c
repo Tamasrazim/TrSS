@@ -631,36 +631,44 @@ int xmx_init(const char *spv_path)
 	vkEnumeratePhysicalDevices(g.inst, &n, pds);
 
 	/* XESS5 must not assume Vulkan's first adapter is the Arc card: hybrid PCs can
-	 * expose an integrated GPU before a discrete Arc GPU. Let an operator provide
-	 * an unambiguous substring, otherwise prefer a device whose reported name
-	 * contains "Arc". The Python adapter also verifies the final device name. */
+	 * expose an integrated GPU before a discrete Arc GPU. Accept an operator's name
+	 * substring only when it identifies exactly one adapter. Without an override,
+	 * require exactly one device name containing "Arc"; ambiguity or a missing Arc
+	 * device is an error rather than silently running on unrelated hardware. */
 	const char *requested_device = getenv("XESS5_VULKAN_DEVICE");
 	VkPhysicalDevice selected = VK_NULL_HANDLE;
 	VkPhysicalDeviceProperties props = {0};
 	VkPhysicalDeviceProperties candidate = {0};
+	uint32_t matches = 0;
 	if (requested_device && requested_device[0]) {
 		for (uint32_t i = 0; i < n; ++i) {
 			vkGetPhysicalDeviceProperties(pds[i], &candidate);
 			if (strstr(candidate.deviceName, requested_device)) {
 				selected = pds[i];
 				props = candidate;
-				break;
+				++matches;
 			}
 		}
-		if (selected == VK_NULL_HANDLE) {
+		if (matches != 1) {
 			free(pds);
+			if (matches > 1)
+				FAIL("XESS5_VULKAN_DEVICE substring matched multiple adapters; use a more specific name", 0);
 			FAIL("XESS5_VULKAN_DEVICE substring matched no Vulkan adapter", 0);
 		}
 	} else {
-		selected = pds[0];
-		vkGetPhysicalDeviceProperties(selected, &props);
 		for (uint32_t i = 0; i < n; ++i) {
 			vkGetPhysicalDeviceProperties(pds[i], &candidate);
 			if (strstr(candidate.deviceName, "Arc")) {
 				selected = pds[i];
 				props = candidate;
-				break;
+				++matches;
 			}
+		}
+		if (matches != 1) {
+			free(pds);
+			if (matches > 1)
+				FAIL("multiple Vulkan adapters contain 'Arc'; set XESS5_VULKAN_DEVICE to a unique substring", 0);
+			FAIL("no Vulkan adapter name contains 'Arc'; set XESS5_VULKAN_DEVICE to select an adapter explicitly", 0);
 		}
 	}
 	g.pd = selected;
