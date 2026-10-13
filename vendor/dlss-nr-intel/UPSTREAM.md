@@ -10,8 +10,10 @@ The vendored code is pinned to the commit above. Most upstream files are kept
 unchanged; `src/gpu/libxmx.c` has one XESS5-specific change in Vulkan adapter
 selection, marked by a nearby comment. That change requires one unique Arc-name
 match by default, or one unique match for the optional
-`XESS5_VULKAN_DEVICE` substring. It fails instead of silently selecting the
-first available GPU when the choice is ambiguous or no Arc-named adapter exists.
+`XESS5_VULKAN_DEVICE` substring, which must also select an Arc-named adapter.
+A non-Arc override is rejected before Vulkan device creation. It fails instead of
+silently selecting the first available GPU when the choice is ambiguous or no
+Arc-named adapter exists.
 First-party model and frame integration remains in the `xess5/` package.
 
 ## Why this source is present
