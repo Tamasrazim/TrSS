@@ -210,6 +210,10 @@ def test_engine_runs_identity_model_and_reports_actual_arc_device(monkeypatch, t
     assert result.output_size == (6, 4)
     assert result.image.getpixel((0, 0)) == (12, 34, 56)
     assert result.inference_ms >= 0
+    # Repeated frames should reuse the compiled request instead of recreating it.
+    first_request = engine._request
+    engine.infer(source)
+    assert engine._request is first_request
 
 
 def test_engine_resizes_to_fixed_model_input_shape(monkeypatch, tmp_path):
@@ -232,8 +236,10 @@ def test_engine_recompiles_dynamic_model_for_new_resolution(monkeypatch, tmp_pat
     engine = ImageInferenceEngine(model_file, device="GPU.1")
 
     engine.infer(Image.new("RGB", (8, 6), (20, 30, 40)))
+    first_request = engine._request
     engine.infer(Image.new("RGB", (10, 7), (20, 30, 40)))
 
+    assert engine._request is not first_request
     assert core.compiled_devices == ["GPU.1", "GPU.1"]
     assert core.compiled_models[0].inputs[0].partial_shape[2].get_length() == 6
     assert core.compiled_models[1].inputs[0].partial_shape[2].get_length() == 7
