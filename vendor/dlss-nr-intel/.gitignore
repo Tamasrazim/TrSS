@@ -1,0 +1,51 @@
+# NVIDIA's property — never committed, never redistributed. See notes/CLAUDE.md "Rules".
+/ref/
+/work/
+/dist/
+# Variant builds beside the shipped ones, for measuring one shader against another without
+# editing the tree (`analysis_e/_team/ACC16重测.md`). The .spv are covered by the *.spv rule
+# below; the .comp copies are throwaway derivatives of src/gpu/*.comp and must not be taken
+# for real sources — a second `gemm_staged.comp` in the tree is exactly the confusion this
+# project has been bitten by before.
+/work_acc16/
+*.dll
+*.exe
+*.7z
+
+# Derived from the DLL: the weight container and everything carved out of it.
+weights_ht.bin
+*.ptx
+*.cubin
+*.fatbin
+*.safetensors
+*.npy
+*.npz
+*.bin
+
+.venv/
+__pycache__/
+*.pyc
+
+# Third-party game frames: test material, not code, and somebody else's copyright. A
+# single one was staged once and is still a loose object in this clone — see
+# `src/tools/publish_check.py --history`, which is what found it.
+/pngs/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.gif
+*.mp4
+*.webm
+
+# Build output and archives, none of which belongs in a source tree.
+*.so
+*.spv
+*.7z
+*.zip
+*.zst
+
+# The daemon's own log, written beside the tree.
+nr_daemon.log
+*.obj
