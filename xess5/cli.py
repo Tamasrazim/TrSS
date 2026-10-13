@@ -18,7 +18,12 @@ from .contracts import parse_value_range
 from .engine import ImageInferenceEngine, inspect_model, available_devices
 from .tensor_engine import TensorInferenceEngine
 from .rendering import FramePacket
-from .rendering.adapter import AdapterSpecError, ModelAdapterSpec, adapt_frame
+from .rendering.adapter import (
+    AdapterSpecError,
+    ModelAdapterSpec,
+    adapt_frame,
+    preview_from_outputs,
+)
 
 
 def _range_argument(value: str) -> tuple[float, float]:
@@ -122,6 +127,8 @@ def _build_parser() -> argparse.ArgumentParser:
     render_frame.add_argument("--warmup", type=int, default=2)
     render_frame.add_argument("--iterations", type=int, default=10)
     render_frame.add_argument("--output-dir", required=True, type=Path, help="directory for raw model output tensors")
+    render_frame.add_argument("--preview-output", type=Path, help="optional PNG/JPEG preview; requires an explicit RGB output declaration in the adapter spec")
+    render_frame.add_argument("--history-output", type=Path, help="optional .npy normalized RGB HWC output to feed as the next frame's history")
     render_frame.add_argument("--report", type=Path, help="optional JSON report of preprocessing and inference timings")
     return parser
 
@@ -517,8 +524,22 @@ def _run_render_frame(args: argparse.Namespace) -> int:
         if path is not None
     )
     resolved_report = args.report.expanduser().resolve() if args.report else None
+    resolved_preview = args.preview_output.expanduser().resolve() if args.preview_output else None
+    resolved_history_output = (
+        args.history_output.expanduser().resolve() if args.history_output else None
+    )
     if resolved_report in protected:
         raise ValueError("Report path must differ from every model/spec/input file.")
+    if resolved_preview in protected or resolved_history_output in protected:
+        raise ValueError("Preview/history output paths must differ from every model/spec/input file.")
+    if resolved_preview is not None and resolved_history_output == resolved_preview:
+        raise ValueError("Preview output and history output must be different files.")
+    if resolved_preview is not None and resolved_preview.suffix.casefold() not in (
+        ".png", ".jpg", ".jpeg", ".webp", ".bmp"
+    ):
+        raise ValueError("Preview output must use PNG, JPEG, WebP, or BMP.")
+    if resolved_history_output is not None and resolved_history_output.suffix.casefold() != ".npy":
+        raise ValueError("History output must use the .npy extension.")
 
     try:
         with Image.open(args.color) as opened:
@@ -546,6 +567,10 @@ def _run_render_frame(args: argparse.Namespace) -> int:
         motion_units=args.motion_units,
     )
     spec = ModelAdapterSpec.load(args.spec)
+    if (resolved_preview is not None or resolved_history_output is not None) and spec.preview_output is None:
+        raise AdapterSpecError(
+            "The adapter spec must declare preview_output before XESS5 can export a display RGB frame or temporal history."
+        )
 
     engine_started = perf_counter()
     engine = TensorInferenceEngine(args.model, device=args.device)
@@ -590,8 +615,31 @@ def _run_render_frame(args: argparse.Namespace) -> int:
             raise ValueError(f"Output tensor path {destination} would overwrite a source or report.")
         destinations.append((name, destination, output))
 
-    if resolved_report in {destination for _, destination, _ in destinations}:
-        raise ValueError("The JSON report path must differ from every output tensor path.")
+    preview = None
+    if resolved_preview is not None or resolved_history_output is not None:
+        preview = preview_from_outputs(last.outputs, spec, target_size=frame.size)
+
+    output_destinations = {destination for _, destination, _ in destinations}
+    sidecar_paths = {
+        path for path in (resolved_preview, resolved_history_output) if path is not None
+    }
+    if len(sidecar_paths) != sum(
+        path is not None for path in (resolved_preview, resolved_history_output)
+    ):
+        raise ValueError("Preview and history output paths must be unique.")
+    if sidecar_paths & output_destinations:
+        raise ValueError("Preview/history path would collide with a model output tensor path.")
+    if sidecar_paths & protected:
+        raise ValueError("Preview/history path would overwrite a source file.")
+    if resolved_report in output_destinations or resolved_report in sidecar_paths:
+        raise ValueError("Report path must differ from every output file.")
+
+    if resolved_preview is not None and preview is not None:
+        from PIL import Image as PILImage
+        pixels = np.rint(np.clip(preview, 0.0, 1.0) * 255.0).astype(np.uint8)
+        PILImage.fromarray(pixels).save(resolved_preview)
+    if resolved_history_output is not None and preview is not None:
+        np.save(resolved_history_output, preview, allow_pickle=False)
 
     for name, destination, output in destinations:
         np.save(destination, output, allow_pickle=False)
@@ -654,6 +702,27 @@ def _run_render_frame(args: argparse.Namespace) -> int:
             }
             for name, array in last.outputs.items()
         },
+        "preview_output": (
+            {
+                "path": str(resolved_preview),
+                "port": spec.preview_output.port if spec.preview_output else None,
+                "size": [frame.width, frame.height],
+                "dtype": "uint8 RGB PNG/JPEG/WebP/BMP on disk",
+            }
+            if resolved_preview is not None and spec.preview_output is not None
+            else None
+        ),
+        "history_output": (
+            {
+                "path": str(resolved_history_output),
+                "shape": [frame.height, frame.width, 3],
+                "dtype": "float32",
+                "range": [0, 1],
+                "use_as_next_frame_history": True,
+            }
+            if resolved_history_output is not None
+            else None
+        ),
         "note": (
             "This runs the selected model using a declared preprocessing contract and supplied "
             "frame buffers. It is not live-game capture, does not synthesize missing depth/motion, "
