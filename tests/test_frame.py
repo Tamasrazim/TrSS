@@ -111,6 +111,16 @@ def test_temporal_history_resets_on_discontinuities(next_frame, reason):
     assert history.last_reset_reason == reason
 
 
+def test_temporal_history_refuses_values_outside_normalized_rgb_range():
+    history = TemporalHistory()
+    frame = make_frame(1, 0.01)
+
+    with pytest.raises(FrameValidationError, match="normalized to the \\[0, 1\\] range"):
+        history.store(frame, np.full((frame.height, frame.width, 3), 1.5, dtype=np.float32))
+
+    assert history.valid is False
+
+
 def test_temporal_history_refuses_wrong_output_shape():
     history = TemporalHistory()
     frame = make_frame(1, 0.01)
