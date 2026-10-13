@@ -1,6 +1,6 @@
 # XESS5 engine architecture
 
-XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is now vendored under `vendor/dlss-nr-intel/`, but it is not yet connected to the public XESS5 inference pipeline. Low-level GPU kernels and a native graphics hook exist to power the engine—not a separate UI prototype.
+XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is now vendored under `vendor/dlss-nr-intel/`, but it is not yet connected to the public XESS5 inference pipeline. Low-level GPU kernels are part of the engine path; the first-party game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
