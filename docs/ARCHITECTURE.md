@@ -1,73 +1,108 @@
 # XESS5 engine architecture
 
-XESS5 is a Python-first neural inference engine for Intel Arc. The first target is the Arc B580 12 GB. Python owns model contracts, tensor preparation, execution orchestration, diagnostics, and tests. GPU work is delegated to a verified inference backend; performance-critical capture or graphics integration can be native code later, but it must serve the engine rather than become a separate demo application.
+XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. Low-level GPU kernels and a native graphics hook may be needed later, but they exist to power the engine—not a separate UI prototype.
 
-## Existing implementation
+## Components in the repository
 
-- `xess5/contracts.py`: explicit numeric-range parsing and RGB image/tensor conversion.
-- `xess5/backends/openvino_backend.py`: lazy OpenVINO loading and local device discovery.
-- `xess5/engine.py`: model validation, FP16/FP32 image input, static/dynamic shape preparation, GPU compilation, one inference request, output conversion, and timing.
-- `xess5/cli.py`: device listing and model inference commands.
-- `tests/test_contracts.py`: CPU-only tests for tensor layouts, ranges, input resizing, and output conversion.
+- `xess5/backends/openvino_backend.py`: local device inventory and strict Arc/explicit GPU selection. No silent CPU fallback.
+- `xess5/contracts.py`: normalized-range parsing and image-to-tensor/tensor-to-image conversion, with explicit NCHW/NHWC and RGB/BGR handling.
+- `xess5/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
+- `xess5/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
+- `xess5/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
+- `xess5/cli.py`: `devices`, `inspect`, `infer`, and `infer-tensors`.
+- `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution using a fake runtime, adapter selection, and history invalidation.
 
-The current contract expects one rank-four RGB image tensor and one rank-four image output. The same layout is assumed for the input and output. Input and output value ranges are explicit command-line options because models do not all use the same preprocessing.
+## GPU selection
 
-## Why this isn't the full neural renderer yet
+`xess5 devices` reports the actual IDs and names OpenVINO exposes. `--device ARC` is intentionally strict: it selects an Intel Arc-named GPU only if that is unambiguous. When multiple devices identify as Arc, pass an exact ID such as `GPU.1`. CPU devices are not accepted as substitutes for a GPU. This prevents a hybrid system from accidentally running on the integrated adapter or CPU while presenting the result as B580 performance.
 
-A general image-to-image model cannot automatically replace DLSS 5 neural rendering. A specialized rendering network may expect scene-specific conditioning, injected noise, depth, motion vectors, reprojected history, style controls, and other tensors. Those inputs must be derived from the actual graphics pipeline and passed with the model's documented preprocessing. XESS5 must add a model-specific adapter rather than guess these details.
+The Windows/Linux driver and OpenVINO GPU plugin are system requirements. A successful CPU-only CI run is not hardware validation.
 
-The initial generic engine is a reusable inference layer. It does not contain proprietary NVIDIA weights, reconstruct those weights, or claim compatibility with DLSS-NR's model contract.
+## Single-image engine versus tensor engine
+
+`ImageInferenceEngine` is a convenience interface for simple models with exactly one rank-four image input and one rank-four image output. Its resize/layout/range options must match the selected model.
+
+`TensorInferenceEngine` is the lower-level interface for rendering graphs that consume more than one tensor. It takes a map from model input names to arrays, verifies exact input-name coverage and shape constraints, and returns a dictionary of outputs. This allows the adapter layer to express color, depth, motion, noise, prior history, and conditioning without forcing them into an invented image-only interface.
+
+The generic tensor engine does not know what a tensor means. It does not generate motion vectors, transform a depth buffer into the model's expected encoding, synthesize noise, or choose temporal blend weights. Those responsibilities belong to a model-specific adapter with a documented contract.
+
+## Frame packet and history
+
+`FramePacket` stores:
+
+- RGB/RGBA color as an HWC numeric array, with explicit color-space metadata;
+- optional H×W depth, H×W×2 motion vectors, H×W×3 noise, and one-dimensional conditioning;
+- timestamps, frame IDs, scene identity, and camera-cut information;
+- explicit depth and motion-vector conventions, where known.
+
+Missing inputs remain missing. The package never fills a depth or motion tensor with made-up values.
+
+`TemporalHistory` stores the last valid processed RGB output and can return a copy to the next frame. It resets on camera cuts, size/scene changes, non-increasing frame IDs, dropped frame sequence IDs, non-monotonic timestamps, and long gaps. This is history lifecycle management only: there is no reprojection, optical-flow estimate, or model-specific blend in this class.
 
 ## Inference lifecycle
 
-1. **Detect:** enumerate OpenVINO devices, and refuse an unavailable requested GPU instead of silently falling back to CPU.
-2. **Validate:** read the local model, check its input/output count, rank, channel dimensions, and supported floating-point precision.
-3. **Specialize:** resolve dynamic image dimensions to the input image and respect fixed dimensions declared by the model.
-4. **Prepare:** decode a local image, convert it to RGB, resize only when the model declares a fixed input shape, apply the user-selected value range, and create a contiguous tensor.
-5. **Execute:** compile for the selected device and measure the inference call separately.
-6. **Convert:** normalize model output using its declared value range and write the output image to a separate path.
-7. **Report:** emit device name, input/model/output dimensions, inference timing, total timing, and an FPS-equivalent for the isolated inference call. That number is not game FPS.
+1. **Discover:** list the devices OpenVINO exposes; resolve `ARC` or an explicit `GPU.X` ID.
+2. **Inspect:** read the local model, and report the model's names, shapes, and element types.
+3. **Validate:** check input count/names, ranks, static dimensions, numeric types, and finite values. Fail rather than guess.
+4. **Prepare:** the adapter converts actual frame data to each model's documented layout, precision, units, and ranges.
+5. **Compile:** specialize dynamic dimensions and compile the model for the selected GPU. Reuse the compiled request while the same shape remains active.
+6. **Execute:** measure inference time separately from compile and total call time. Do not describe isolated inference throughput as game FPS.
+7. **Compose:** a future model-specific adapter maps output tensors into the frame according to the selected model's real output contract.
+8. **Report:** save device identity, model path, shapes, settings, timings, and errors.
 
-## Planned engine milestones
+## Next engineering milestones
 
-### 1. Verified GPU inference
-Run a permissively licensed image-to-image model on the Arc B580 with a recorded device name, model hash, settings, output image, and reproducible timings. A CI runner without the target hardware cannot validate this.
+### 1. Choose and verify the model contract
+Select properly licensed parameters and an architecture relevant to neural graphics. Record exact file hashes, names, input meanings, tensor shapes, color space, normalization, precision, output composition, and the license. If it expects a proprietary runtime or weights that cannot be redistributed, document that boundary rather than bundling it.
 
-### 2. Model-specific neural-rendering adapter
-Document all inputs, tensor shapes, layouts, precision, normalization, conditioning, and output composition for a model whose license permits the planned use. If an adapter requires multiple inputs or temporal state, extend the contract deliberately instead of relaxing validation.
+### 2. Implement a model-specific adapter
+Map `FramePacket` into the actual model's inputs. Implement exact preprocessing, deterministic noise if required, conditioning vectors, depth/motion conventions, and output composition. Check an offline set of frames against known reference outputs before integrating a game.
 
-### 3. Graphics-frame source
-Add a repeatable test renderer and explicit frame metadata: size, pixel format, colour space, timestamp, and optional depth/motion vectors. Check capture overhead separately from model execution.
+### 3. Validate on the physical Arc B580
+Record driver, OpenVINO/runtime version, selected device name, resolution, model hash, compile time, inference time, total latency, output image, and VRAM if available. Include a warm-up phase and report median/p95 measurements. The result must be measured on the actual card.
 
-### 4. Temporal state
-Add previous-frame history, reprojection, reset on scene cuts/resize/source changes, and tests that detect stale history. Only use motion and depth data when the source provides valid buffers.
+### 4. Add a real frame source
+Begin with a controlled renderer/capture test and clearly track color space, format, timestamp, depth and motion availability. Measure capture and readback overhead separately from the network. Never fabricate missing buffers.
 
-### 5. Low-overhead live integration
-Investigate Vulkan integration for documented and tested paths. Installation must preview changed files, preserve existing files, roll back on failures, and offer a verified remove operation. Do not suggest modified game files are safe with anti-cheat protected online play.
+### 5. Add temporal reprojection
+Use the selected model's real motion convention and previous-frame contract. Invalidate history after scene cuts, camera changes, resolution changes, dropped frames, or invalid data. Test motion, ghosting, disocclusion, and scene resets.
+
+### 6. Add live graphics integration
+Only after offline output and performance are correct, build a documented Vulkan integration path. Preview every file change, preserve originals, restore files after cancellation/failure, and verify removal. Do not claim compatibility with anti-cheat protected online games.
 
 ## Build and run
-
-Requires Python 3.10+, a compatible Intel graphics driver, and OpenVINO's GPU plugin for GPU inference.
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[gpu,test]"
 xess5 devices
-xess5 infer --model "models\model.onnx" --input "input.png" --output "output.png" --device GPU --layout NCHW --input-range 0:1 --output-range 0:1 --report "logs\run.json"
+xess5 inspect --model "models\model.onnx"
 python -m pytest
 ```
 
-Use a local model that follows the declared image contract. ONNX and OpenVINO IR are supported only insofar as OpenVINO can read them and their tensor contracts match. Model weights are not supplied by this repository.
+Simple image inference:
+
+```powershell
+xess5 infer --model "models\model.onnx" --input "input.png" --output "output.png" --device ARC --layout NCHW --input-range 0:1 --output-range 0:1 --warmup 3 --iterations 10 --report "logs\run.json"
+```
+
+Multiple inputs:
+
+```powershell
+xess5 infer-tensors --model "models\render-model.onnx" --input "color=work\color.npy" --input "depth=work\depth.npy" --input "motion=work\motion.npy" --output-dir "work\outputs" --device ARC --warmup 2 --iterations 10 --report "logs\tensor-run.json"
+```
+
+The tensor command runs the model with caller-supplied arrays. Correct preprocessing and the meaning of each input remain the adapter's responsibility.
 
 ## Acceptance gates
 
-- CPU-only unit tests pass on CI.
-- The runtime reports the exact available GPU devices.
-- The selected GPU is not replaced by silent CPU fallback.
-- Invalid model contracts and unavailable devices report actionable errors.
-- Source images are never overwritten by output.
-- Inference and end-to-end timings are separated and accurately named.
-- At least one compatible licensed model is run on the physical Arc B580 before claiming hardware support.
-- Model-specific neural-rendering inputs are validated before calling a model a neural renderer.
-- Live integration has a repeatable test and a demonstrated rollback before being called supported.
+- CPU-only tests pass on CI.
+- Arc selection is unambiguous and CPU fallback is refused.
+- Models and tensors that do not match the declared contract fail with useful diagnostics.
+- Input files and model files are never overwritten by output.
+- The generic tensor engine accepts multiple inputs and outputs, reuses compiled shapes, and reports timings.
+- At least one compatible and legally usable neural model is executed on the physical Arc B580.
+- A model-specific adapter produces validated neural-rendering output from real frame inputs.
+- Reprojection, frame timing, and visual quality have repeatable tests.
+- A live graphics integration has a rollback test before it is described as supported.
