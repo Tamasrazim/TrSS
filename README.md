@@ -54,6 +54,7 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Specialized HNet-style frame contract:** `xess5/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
+- **First-party XESS5 training model:** a trainable 10-channel, 2x temporal reconstruction network, strict JSONL paired-frame dataset loader, BF16-capable PyTorch training loop, parameter-size reporting, checkpoints, and CPU CI tests. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, XMX-frame orchestration, and temporal history. CI builds the vendored native runtime, host helpers, and all runtime SPIR-V shaders; it still does not execute them on an Arc GPU.
 
 The frame and tensor layers are infrastructure for a neural renderer. They are not themselves a trained rendering model, a game capture hook, or proof of support on a physical Arc B580.
@@ -127,6 +128,19 @@ xess5 hnet-frame --model "models\your-hnet-model.onnx" --color "frames\input.png
 ```
 
 The command refuses incompatible input/output shapes rather than pretending any rank-four network is the expected graph. A supplied model must also have matching weights, input preprocessing, head output semantics, and legal terms. The report's timing separates model inference from the whole offline frame path; neither is in-game FPS. Previous history is optional for the first frame and, when provided, must be an RGB HWC `.npy` array in the 0..1 range.
+
+### Train the original XESS5 reconstruction model
+
+The first-party model and training contract are documented in [docs/TRAINING.md](docs/TRAINING.md). PyTorch's official Intel GPU wheels are needed for training on an Arc card; the regular runtime install does not include PyTorch.
+
+```powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
+python -m pip install -e ".[training,test]"
+python -m xess5.training.model --channels 48 --blocks 10 --context-blocks 4
+python -m xess5.training.train --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --output-dir models/xess5-quality --device xpu --channels 48 --blocks 10 --context-blocks 4 --patch-size 128 --batch-size 1 --epochs 100 --amp
+```
+
+This requires your own paired, legally usable renders plus real depth, motion and correctly reprojected history data. No dataset or pretrained weights are included. The new checkpoint format is not yet compatible with `xmx-frame`; that needs a separate native implementation.
 
 ### Run the experimental native Intel Arc XMX frame path
 
