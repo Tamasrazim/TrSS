@@ -1,70 +1,73 @@
-# XESS5 architecture
+# XESS5 engine architecture
 
-XESS5 is being built as an application we own and understand, rather than as a launcher around another application's UI. The current executable is a native Windows frame-inspection shell. The image baseline deliberately does not claim to be a neural model.
+XESS5 is a Python-first neural inference engine for Intel Arc. The first target is the Arc B580 12 GB. Python owns model contracts, tensor preparation, execution orchestration, diagnostics, and tests. GPU work is delegated to a verified inference backend; performance-critical capture or graphics integration can be native code later, but it must serve the engine rather than become a separate demo application.
 
-## Current executable
+## Existing implementation
 
-- **UI:** Win32 window and native controls.
-- **Image decoding:** Windows Imaging Component (WIC).
-- **Image storage:** top-down 8-bit BGRA pixels.
-- **Comparison:** preserve the source, generate a separately stored reference image, and show either image or an A/B split.
-- **Reference operation:** a basic unsharp-mask filter, used to verify that loading, processing, display, and comparison work together.
-- **Processing responsiveness:** the reference operation runs on a worker thread; the UI receives its result through a window message.
-- **External components:** none are bundled for this initial path. WIC and Win32 are part of Windows.
+- `xess5/contracts.py`: explicit numeric-range parsing and RGB image/tensor conversion.
+- `xess5/backends/openvino_backend.py`: lazy OpenVINO loading and local device discovery.
+- `xess5/engine.py`: model validation, FP16/FP32 image input, static/dynamic shape preparation, GPU compilation, one inference request, output conversion, and timing.
+- `xess5/cli.py`: device listing and model inference commands.
+- `tests/test_contracts.py`: CPU-only tests for tensor layouts, ranges, input resizing, and output conversion.
 
-This conventional image operation is not evidence of neural rendering. It is a baseline for the user interface and pixel-handling path only.
+The current contract expects one rank-four RGB image tensor and one rank-four image output. The same layout is assumed for the input and output. Input and output value ranges are explicit command-line options because models do not all use the same preprocessing.
 
-## Planned rendering boundaries
+## Why this isn't the full neural renderer yet
 
-Keep each responsibility separate so a missing model or unsupported game API cannot break the interface.
+A general image-to-image model cannot automatically replace DLSS 5 neural rendering. A specialized rendering network may expect scene-specific conditioning, injected noise, depth, motion vectors, reprojected history, style controls, and other tensors. Those inputs must be derived from the actual graphics pipeline and passed with the model's documented preprocessing. XESS5 must add a model-specific adapter rather than guess these details.
 
-### 1. Frame source
+The initial generic engine is a reusable inference layer. It does not contain proprietary NVIDIA weights, reconstruct those weights, or claim compatibility with DLSS-NR's model contract.
 
-Input adapters should produce an explicit frame description: width, height, pixel format, colour space, timestamp, and, where available, depth and motion vectors. The first source is a local image. Later sources may include a controlled test renderer, desktop/game capture, or a supported graphics-API integration.
+## Inference lifecycle
 
-### 2. GPU backend
+1. **Detect:** enumerate OpenVINO devices, and refuse an unavailable requested GPU instead of silently falling back to CPU.
+2. **Validate:** read the local model, check its input/output count, rank, channel dimensions, and supported floating-point precision.
+3. **Specialize:** resolve dynamic image dimensions to the input image and respect fixed dimensions declared by the model.
+4. **Prepare:** decode a local image, convert it to RGB, resize only when the model declares a fixed input shape, apply the user-selected value range, and create a contiguous tensor.
+5. **Execute:** compile for the selected device and measure the inference call separately.
+6. **Convert:** normalize model output using its declared value range and write the output image to a separate path.
+7. **Report:** emit device name, input/model/output dimensions, inference timing, total timing, and an FPS-equivalent for the isolated inference call. That number is not game FPS.
 
-Probe the GPU and driver at startup, record the available APIs and formats, and choose a backend only when every required capability is present. The initial hardware target is the Intel Arc B580. Use Vulkan or another verified Intel-supported compute path, measuring GPU time separately from capture, copies, and presentation.
+## Planned engine milestones
 
-A Vulkan-capable GPU does not imply that every feature or every injected game path is supported. In particular, any matrix instructions, precision formats, or shader extensions must be checked at runtime.
+### 1. Verified GPU inference
+Run a permissively licensed image-to-image model on the Arc B580 with a recorded device name, model hash, settings, output image, and reproducible timings. A CI runner without the target hardware cannot validate this.
 
-### 3. Model backend
+### 2. Model-specific neural-rendering adapter
+Document all inputs, tensor shapes, layouts, precision, normalization, conditioning, and output composition for a model whose license permits the planned use. If an adapter requires multiple inputs or temporal state, extend the contract deliberately instead of relaxing validation.
 
-The model loader must verify its manifest, tensor shapes, precision, memory requirements, file hashes, and license before allocating large buffers. Keep the model format replaceable.
+### 3. Graphics-frame source
+Add a repeatable test renderer and explicit frame metadata: size, pixel format, colour space, timestamp, and optional depth/motion vectors. Check capture overhead separately from model execution.
 
-A source-code implementation and its model parameters are separate things. The application must never silently treat NVIDIA's proprietary DLL or extracted weights as freely redistributable. Use a separately licensed model or material the user has legitimate permission to use.
+### 4. Temporal state
+Add previous-frame history, reprojection, reset on scene cuts/resize/source changes, and tests that detect stale history. Only use motion and depth data when the source provides valid buffers.
 
-### 4. Renderer and history
+### 5. Low-overhead live integration
+Investigate Vulkan integration for documented and tested paths. Installation must preview changed files, preserve existing files, roll back on failures, and offer a verified remove operation. Do not suggest modified game files are safe with anti-cheat protected online play.
 
-The future renderer owns intermediate GPU images, compute dispatches, frame history, resize handling, and device-loss recovery. History is invalidated on scene-size changes, source changes, discontinuities, and explicit reset. The first neural inference milestone should use deterministic still-frame input before temporal history is enabled.
+## Build and run
 
-### 5. Game integration
-
-The game hook is a separate module from the application shell. Each supported API/architecture combination needs a reproducible test. Installation must show exactly which files would change, preserve originals safely, roll back on error, and provide a verified removal path. Never silently touch anti-cheat protected game installations or claim online-game safety.
-
-## Build
-
-Requires Windows 10/11 x64, Visual Studio 2022 with the Desktop development with C++ workload, and CMake 3.24 or newer.
-
-From a Developer PowerShell in the repository:
+Requires Python 3.10+, a compatible Intel graphics driver, and OpenVINO's GPU plugin for GPU inference.
 
 ```powershell
-cmake -S . -B build -A x64
-cmake --build build --config Release --parallel
-.\build\Release\XESS5.exe
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[gpu,test]"
+xess5 devices
+xess5 infer --model "models\model.onnx" --input "input.png" --output "output.png" --device GPU --layout NCHW --input-range 0:1 --output-range 0:1 --report "logs\run.json"
+python -m pytest
 ```
 
-The initial frame-inspection shell only uses Windows system libraries. Vulkan and model-runtime dependencies will not be added until a tested backend is ready.
+Use a local model that follows the declared image contract. ONNX and OpenVINO IR are supported only insofar as OpenVINO can read them and their tensor contracts match. Model weights are not supplied by this repository.
 
 ## Acceptance gates
 
-1. Build succeeds on a clean Windows x64 runner.
-2. A local PNG/JPEG/BMP/TIFF image loads without changing the source file.
-3. The source and processed images have matching dimensions and remain independently viewable.
-4. Processing does not freeze the UI or pair a result with the wrong input.
-5. Backend self-test identifies the selected GPU and required capabilities.
-6. The neural path is only labelled neural after licensed model inference is actually executing.
-7. Frame timings distinguish inference, copy/capture, and total end-to-end latency.
-8. Install/remove tests prove the game directory is restored after success, cancellation, and failure.
-
-Each gate should have an executable test or repeatable manual test case. Don't claim an acceptance gate passed until it has actually run.
+- CPU-only unit tests pass on CI.
+- The runtime reports the exact available GPU devices.
+- The selected GPU is not replaced by silent CPU fallback.
+- Invalid model contracts and unavailable devices report actionable errors.
+- Source images are never overwritten by output.
+- Inference and end-to-end timings are separated and accurately named.
+- At least one compatible licensed model is run on the physical Arc B580 before claiming hardware support.
+- Model-specific neural-rendering inputs are validated before calling a model a neural renderer.
+- Live integration has a repeatable test and a demonstrated rollback before being called supported.
