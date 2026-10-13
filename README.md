@@ -17,17 +17,11 @@ XESS5 is being developed around actual model inference, graphics-frame contracts
 
 **Overall engineering estimate toward a complete, live, physically validated neural renderer: 35%**
 
-```text
-                /▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░/|
-               /____________________________/ |
-               |██████████░░░░░░░░░░░░░░░░░░| |
-               |██████████░░░░░░░░░░░░░░░░░░| /
-               |____________________________|/
-```
+![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
-*3D-style isometric progress bar · 35% estimated roadmap completion*
+*Animated isometric progress graphic · 35% estimated roadmap completion*
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. The 35% fill is a roadmap estimate; the light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
