@@ -164,9 +164,13 @@ def _uniform24(value: np.ndarray) -> np.ndarray:
 
 def deterministic_noise(height: int, width: int, frame_index: int = 0) -> np.ndarray:
     """Generate the three deterministic, half-rounded Gaussian channels."""
-    height, width, frame_index = int(height), int(width), int(frame_index)
-    if height <= 0 or width <= 0 or frame_index < 0:
-        raise HNetContractError("Noise dimensions must be positive and frame index non-negative.")
+    if isinstance(frame_index, (bool, np.bool_)) or not isinstance(
+        frame_index, (int, np.integer)
+    ) or frame_index < 0:
+        raise HNetContractError("frame_index must be a non-negative integer.")
+    height, width = int(height), int(width)
+    if height <= 0 or width <= 0:
+        raise HNetContractError("Noise dimensions must be positive.")
 
     yy, xx = np.indices((height, width), dtype=np.uint32)
     seed = yy * np.uint32(0xD8163841)
@@ -269,6 +273,10 @@ def make_features(
     """
     color = _validate_rgb01(color, name="color")
     height, width = color.shape[:2]
+    if isinstance(frame_index, (bool, np.bool_)) or not isinstance(
+        frame_index, (int, np.integer)
+    ) or frame_index < 0:
+        raise HNetContractError("frame_index must be a non-negative integer.")
     controls.validate()
 
     if geometry is None:
