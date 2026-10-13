@@ -106,3 +106,41 @@ The tensor command runs the model with caller-supplied arrays. Correct preproces
 - A model-specific adapter produces validated neural-rendering output from real frame inputs.
 - Reprojection, frame timing, and visual quality have repeatable tests.
 - A live graphics integration has a rollback test before it is described as supported.
+
+
+## Specialized HNet-style frame adapter
+
+`xess5/rendering/hnet.py` adds a separate, explicit pre/post-processing path around a supplied model. It was implemented from the public frame contract documented by the Intel Xe2 research project and its cited Apache-2.0 feature-contract reference; the project records the research and license boundaries in [THIRD-PARTY-RESEARCH.md](THIRD-PARTY-RESEARCH.md).
+
+The adapter performs:
+
+1. Input validation for RGB float values in the range 0..1.
+2. Deterministic three-channel noise generation from network pixel coordinates and a frame index.
+3. Network-field alignment and mirror extension.
+4. Three-step FP16 color scaling, preserving the separate rounding points.
+5. A 16-channel feature tensor, in HWC before conversion to NCHW:
+   - channels 0-2 deterministic noise;
+   - channel 3 constant one;
+   - channels 4-6 current color at the model's scaled representation;
+   - channels 7-9 previous color/prediction at the same representation (current color on the first frame);
+   - channel 10 normalized style index;
+   - channel 11 local tone strength;
+   - channel 12 local structure strength;
+   - channels 13-14 set to -1 for the disabled optional masks;
+   - channel 15 zero.
+6. Strict model checks requiring one NCHW 16-channel input and one four-channel output head, NCHW or NHWC.
+7. Four-channel composition: rounded RGB residual plus a sigmoid temporal gate blended with the supplied prior history; the adapter returns a normalized RGB output and the next history buffer.
+
+### Important current limits
+
+This is an independently implemented contract adapter, not the 71-block trained network. It does not embed or recover vendor weights, supply the actual model graph, reproduce every vendor style grade/mask or intensity control, or reproject history using engine motion vectors. The first implementation uses identity reprojection and only the explicitly implemented head composition. It must not be treated as a bit-exact vendor clone.
+
+To test the adapter, supply an otherwise compatible, legally usable ONNX/OpenVINO model file with a one-input/one-output contract. The network-field size has to match the model's static dimensions when those are fixed. A mismatched graph stops with a shape error before the result is described as supported.
+
+CLI:
+
+```powershell
+xess5 hnet-frame --model "models\model.onnx" --color "frames\frame.png" --output "work\rendered.png" --device ARC --output-layout NCHW --frame-index 0 --warmup 1 --iterations 5 --history-output "work\next-history.npy" --head-output "work\head.npy" --report "logs\hnet.json"
+```
+
+The command reports the requested and resolved GPU ID, device name, network dimensions, preprocessing/model timing, and output paths. All inference inputs and model files stay local. No actual Arc B580 run, live-game capture, Vulkan hook, or in-game performance result has been verified by CPU-only CI.
