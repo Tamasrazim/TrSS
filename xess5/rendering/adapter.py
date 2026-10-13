@@ -118,11 +118,63 @@ class InputBinding:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PreviewBinding:
+    """Explicit contract for interpreting one model output as an RGB image."""
+
+    port: str
+    layout: Literal["NCHW", "NHWC"]
+    source_range: tuple[float, float]
+    channel_order: Literal["RGB", "BGR"] = "RGB"
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "PreviewBinding":
+        if not isinstance(value, dict):
+            raise AdapterSpecError("preview_output must be a JSON object.")
+        unknown = sorted(set(value) - {"port", "layout", "source_range", "channel_order"})
+        if unknown:
+            raise AdapterSpecError(
+                "preview_output contains unknown fields: " + ", ".join(unknown)
+            )
+        port = value.get("port")
+        if not isinstance(port, str) or not port.strip():
+            raise AdapterSpecError("preview_output.port must be a non-empty model output name.")
+        layout = value.get("layout")
+        if layout not in ("NCHW", "NHWC"):
+            raise AdapterSpecError("preview_output.layout must be NCHW or NHWC.")
+        raw_range = value.get("source_range")
+        if (
+            not isinstance(raw_range, list)
+            or len(raw_range) != 2
+            or isinstance(raw_range[0], bool)
+            or isinstance(raw_range[1], bool)
+        ):
+            raise AdapterSpecError("preview_output.source_range must be [MIN, MAX].")
+        try:
+            low, high = float(raw_range[0]), float(raw_range[1])
+        except (TypeError, ValueError) as exc:
+            raise AdapterSpecError("preview_output.source_range is invalid.") from exc
+        if not np.isfinite(low) or not np.isfinite(high) or low >= high:
+            raise AdapterSpecError(
+                "preview_output.source_range values must be finite and ascending."
+            )
+        channel_order = value.get("channel_order", "RGB")
+        if channel_order not in ("RGB", "BGR"):
+            raise AdapterSpecError("preview_output.channel_order must be RGB or BGR.")
+        return cls(
+            port=port.strip(),
+            layout=layout,
+            source_range=(low, high),
+            channel_order=channel_order,
+        )
+
+
 @dataclass(frozen=True)
 class ModelAdapterSpec:
-    """Versioned mapping between model port names and frame semantics."""
+    """Versioned mapping between model input ports and optional display output."""
 
     inputs: dict[str, InputBinding]
+    preview_output: PreviewBinding | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> "ModelAdapterSpec":
@@ -130,8 +182,8 @@ class ModelAdapterSpec:
             raise AdapterSpecError("The adapter spec root must be a JSON object.")
         if value.get("version") != 1:
             raise AdapterSpecError("Adapter spec version must be 1.")
-        if set(value) - {"version", "description", "inputs"}:
-            unknown = sorted(set(value) - {"version", "description", "inputs"})
+        if set(value) - {"version", "description", "inputs", "preview_output"}:
+            unknown = sorted(set(value) - {"version", "description", "inputs", "preview_output"})
             raise AdapterSpecError(
                 "Adapter spec has unknown root fields: " + ", ".join(unknown)
             )
@@ -149,7 +201,13 @@ class ModelAdapterSpec:
                 raise AdapterSpecError(f"Duplicate model input name {name!r}.")
             bindings[name] = InputBinding.from_dict(raw_binding, port_name=name)
 
-        return cls(inputs=bindings)
+        preview_raw = value.get("preview_output")
+        preview = (
+            PreviewBinding.from_dict(preview_raw)
+            if preview_raw is not None
+            else None
+        )
+        return cls(inputs=bindings, preview_output=preview)
 
     @classmethod
     def load(cls, path: str | Path) -> "ModelAdapterSpec":
@@ -450,3 +508,68 @@ def adapt_frame(
             source, binding, model_shapes[port_name], port_name
         )
     return result
+
+
+
+def preview_from_outputs(
+    outputs: dict[str, np.ndarray],
+    spec: ModelAdapterSpec,
+    *,
+    target_size: tuple[int, int],
+) -> np.ndarray:
+    """Decode a declared RGB image output to HWC float32 in the 0..1 display range.
+
+    This is intentionally optional: a model that emits feature planes or a
+    packed/learned head must provide its own output composition function instead
+    of labelling the raw tensor as RGB.
+    """
+    binding = spec.preview_output
+    if binding is None:
+        raise AdapterSpecError(
+            "No preview_output is declared in the model adapter spec. "
+            "Only direct RGB/RGBA image outputs can use the generic preview path."
+        )
+    if binding.port not in outputs:
+        raise AdapterSpecError(
+            f"preview_output refers to {binding.port!r}, but the model produced: "
+            + ", ".join(sorted(outputs))
+        )
+
+    raw = np.asarray(outputs[binding.port])
+    if raw.ndim != 4 or raw.shape[0] != 1:
+        raise AdapterSpecError(
+            f"Preview port {binding.port!r} must be a batch-one rank-four tensor; "
+            f"received {raw.shape!r}."
+        )
+
+    if binding.layout == "NCHW":
+        channels = int(raw.shape[1])
+        image = np.transpose(raw[0], (1, 2, 0))
+    else:
+        channels = int(raw.shape[3])
+        image = raw[0]
+
+    if channels not in (3, 4):
+        raise AdapterSpecError(
+            f"Preview port {binding.port!r} must contain 3 or 4 channels, got {channels}. "
+            "Feature tensors and packed heads require model-specific output composition."
+        )
+    if image.ndim != 3 or image.shape[2] not in (3, 4):
+        raise AdapterSpecError(
+            f"Preview port {binding.port!r} has incompatible image shape {image.shape!r}."
+        )
+
+    image = np.asarray(image, dtype=np.float32)
+    if not np.isfinite(image).all():
+        raise AdapterSpecError(f"Preview port {binding.port!r} contains invalid values.")
+
+    low, high = binding.source_range
+    image = np.clip((image - low) / (high - low), 0.0, 1.0)
+    image = image[:, :, :3]
+    if binding.channel_order == "BGR":
+        image = image[:, :, ::-1]
+
+    target_width, target_height = target_size
+    if (image.shape[1], image.shape[0]) != (target_width, target_height):
+        image = _resize_image(image, target_width, target_height, "bilinear")
+    return np.ascontiguousarray(image, dtype=np.float32)
