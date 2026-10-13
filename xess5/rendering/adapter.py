@@ -202,7 +202,6 @@ def _resize_image(array: np.ndarray, width: int, height: int, mode: ResizeMode) 
         fy = (y - y0).astype(np.float32)[:, None, None]
         fx = (x - x0).astype(np.float32)[None, :, None]
         values = pixels.astype(np.float32, copy=False)
-        top = values[y0[:, None], x0[None, :, :]] if False else None
         top_left = values[y0[:, None], x0[None, :], :]
         top_right = values[y0[:, None], x1[None, :], :]
         bottom_left = values[y1[:, None], x0[None, :], :]
