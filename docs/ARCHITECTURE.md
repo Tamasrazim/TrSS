@@ -1,6 +1,6 @@
 # XESS5 engine architecture
 
-XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is now vendored under `vendor/dlss-nr-intel/`, but it is not yet connected to the public XESS5 inference pipeline. Low-level GPU kernels are part of the engine path; the first-party game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
+XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
@@ -9,9 +9,10 @@ XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580
 - `xess5/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
 - `xess5/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
 - `xess5/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
-- `xess5/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, and `hnet-frame`.
-- `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The XESS5-specific device-selection change rejects zero or multiple name matches, but the vendor runner is not yet invoked by the Python CLI.
-- `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution using a fake runtime, adapter selection, and history invalidation. CI does not build or execute the native Vulkan backend.
+- `xess5/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
+- `xess5/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
+- `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
+- `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI does not build all SPIR-V shaders or execute the native backend on a GPU.
 
 ## GPU selection
 
