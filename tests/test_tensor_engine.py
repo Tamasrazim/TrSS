@@ -18,11 +18,11 @@ import xess5.tensor_engine as tensor_engine_module
 
 
 @pytest.mark.parametrize("precision", ["bf16", "bfloat16", "Type.bf16"])
-def test_tensor_engine_rejects_bfloat16_instead_of_treating_it_as_fp16():
+def test_tensor_engine_rejects_bfloat16_instead_of_treating_it_as_fp16(precision):
     from types import SimpleNamespace
 
     with pytest.raises(ModelContractError, match="bfloat16"):
-        _port_numpy_dtype(SimpleNamespace(element_type="bf16"))
+        _port_numpy_dtype(SimpleNamespace(element_type=precision))
 
 
 def install_tensor_openvino(monkeypatch, tmp_path, core):
