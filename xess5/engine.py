@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Any
 
@@ -225,7 +226,11 @@ class ImageInferenceEngine:
         # to the actual image in _prepare_model().
         self._device_name = self._read_device_name(self.device)
         self._compiled = None
+        self._request = None
         self._prepared_shape: tuple[int, ...] | None = None
+        # A compiled inference request is reused across frames. Serialize access so
+        # concurrent callers cannot overwrite its output before we copy it. 
+        self._lock = Lock()
 
         if output_shape := list(output_port.partial_shape):
             if len(output_shape) != 4:
@@ -276,12 +281,15 @@ class ImageInferenceEngine:
             self._model.reshape({input_port: resolved_shape})
 
         try:
-            self._compiled = self.core.compile_model(self._model, self.device)
+            compiled = self.core.compile_model(self._model, self.device)
+            request = compiled.create_infer_request()
         except Exception as exc:
             raise BackendUnavailable(
-                f"OpenVINO could not compile the model for {self.device} "
+                f"OpenVINO could not compile or prepare the model for {self.device} "
                 f"({self._device_name}): {exc}"
             ) from exc
+        self._compiled = compiled
+        self._request = request
         self._prepared_shape = shape_key
 
     def infer(self, image: Image.Image) -> InferenceResult:
@@ -291,37 +299,39 @@ class ImageInferenceEngine:
 
         width = self._width or image.width
         height = self._height or image.height
-        self._prepare_model(width, height)
 
-        tensor = image_to_tensor(
-            image,
-            layout=self.layout,
-            width=width,
-            height=height,
-            value_range=self.input_range,
-            channel_order=self.input_channel_order,
-            dtype=self._input_dtype,
-        )
+        # OpenVINO requests are stateful. Reuse the request for lower per-frame
+        # overhead, but protect the request and its output from concurrent callers.
+        with self._lock:
+            self._prepare_model(width, height)
+            tensor = image_to_tensor(
+                image,
+                layout=self.layout,
+                width=width,
+                height=height,
+                value_range=self.input_range,
+                channel_order=self.input_channel_order,
+                dtype=self._input_dtype,
+            )
 
-        request = self._compiled.create_infer_request()
-        started = perf_counter()
-        request.infer({0: tensor})
-        inference_ms = (perf_counter() - started) * 1000.0
+            started = perf_counter()
+            self._request.infer({0: tensor})
+            inference_ms = (perf_counter() - started) * 1000.0
 
-        output = np.array(request.get_output_tensor(0).data, copy=True)
-        output_image = tensor_to_image(
-            output,
-            layout=self.layout,
-            value_range=self.output_range,
-            channel_order=self.output_channel_order,
-        )
+            output = np.array(self._request.get_output_tensor(0).data, copy=True)
+            output_image = tensor_to_image(
+                output,
+                layout=self.layout,
+                value_range=self.output_range,
+                channel_order=self.output_channel_order,
+            )
 
-        return InferenceResult(
-            image=output_image,
-            inference_ms=inference_ms,
-            input_size=(width, height),
-            output_size=output_image.size,
-            device=self.device,
-            device_name=self._device_name,
-            model_path=str(self.model_path),
-        )
+            return InferenceResult(
+                image=output_image,
+                inference_ms=inference_ms,
+                input_size=(width, height),
+                output_size=output_image.size,
+                device=self.device,
+                device_name=self._device_name,
+                model_path=str(self.model_path),
+            )
