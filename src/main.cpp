@@ -60,6 +60,7 @@ struct AppState {
 }
 
 void SetStatus(HWND window, AppState& state, std::wstring message) {
+    (void)window; // Status updates are sent directly to the status control.
     state.status = std::move(message);
     if (state.statusLabel != nullptr) {
         SetWindowTextW(state.statusLabel, state.status.c_str());
