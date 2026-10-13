@@ -103,16 +103,18 @@ def inspect_model(model_path: str | Path) -> dict[str, object]:
         "output_count": len(outputs),
         "inputs": inputs,
         "outputs": outputs,
-        "supported_by_current_image_engine": (
+        "rank_four_single_input_output_candidate": (
             len(inputs) == 1
             and len(outputs) == 1
             and len(inputs[0]["shape"]) == 4
             and len(outputs[0]["shape"]) == 4
         ),
         "note": (
-            "The current generic image engine requires one rank-four RGB input and "
-            "one rank-four image output. Multi-input models for depth, motion vectors, "
-            "noise, or temporal history need a specialized adapter."
+            "The flag only identifies a one-input/one-output rank-four candidate; "
+            "it does not prove image channel positions, colorspace, normalization, or "
+            "model compatibility. Verify those details from the model specification. "
+            "Multi-input models for depth, motion vectors, noise, or temporal history "
+            "need the multi-input engine and a model-specific adapter."
         ),
     }
 
