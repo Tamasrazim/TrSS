@@ -138,6 +138,7 @@ python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
 python -m pip install -e ".[training,test]"
 python -m xess5.training.model --channels 48 --blocks 10 --context-blocks 4
 python -m xess5.training.train --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --output-dir models/xess5-quality --device xpu --channels 48 --blocks 10 --context-blocks 4 --patch-size 128 --batch-size 1 --epochs 100 --amp
+python -m xess5.training.infer --checkpoint models/xess5-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/xess5-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
 ```
 
 This requires your own paired, legally usable renders plus real depth, motion and correctly reprojected history data. No dataset or pretrained weights are included. The new checkpoint format is not yet compatible with `xmx-frame`; that needs a separate native implementation.
