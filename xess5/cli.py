@@ -557,6 +557,7 @@ def _run_render_frame(args: argparse.Namespace) -> int:
     priming_started = perf_counter()
     last = engine.infer(inputs)
     priming_wall_ms = (perf_counter() - priming_started) * 1000.0
+    priming_compile_ms = last.compile_ms
 
     for _ in range(args.warmup):
         inputs = adapt_frame(frame, spec, model_shapes, history=history)
@@ -621,7 +622,7 @@ def _run_render_frame(args: argparse.Namespace) -> int:
         },
         "engine_load_ms": round(engine_load_ms, 3),
         "priming_call_wall_ms": round(priming_wall_ms, 3),
-        "priming_compile_ms": round(last.compile_ms, 3),
+        "priming_compile_ms": round(priming_compile_ms, 3),
         "warmup_calls": args.warmup,
         "iterations": args.iterations,
         "preprocessing_ms": {
