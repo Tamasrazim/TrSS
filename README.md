@@ -138,7 +138,7 @@ A generic image model may demonstrate the inference pipeline, but it is not a st
 - [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
 - [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
 
-The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active XESS5 rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `XESS5_VULKAN_DEVICE` only when its device-name substring matches exactly one Vulkan adapter.
+The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active XESS5 rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `XESS5_VULKAN_DEVICE` only when its device-name substring uniquely identifies an Arc-named Vulkan adapter.
 
 These are technical references, not opaque third-party applications wrapped by XESS5. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
