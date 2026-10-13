@@ -180,8 +180,13 @@ class TensorInferenceEngine:
                     f"Input {name!r} expects rank {len(port.partial_shape)}, "
                     f"got shape {array.shape!r}."
                 )
-            if not np.issubdtype(array.dtype, np.number):
-                raise ModelContractError(f"Input {name!r} must be numeric.")
+            if (
+                not np.issubdtype(array.dtype, np.number)
+                or np.issubdtype(array.dtype, np.complexfloating)
+            ):
+                raise ModelContractError(
+                    f"Input {name!r} must contain real-valued numeric data."
+                )
             if not np.isfinite(array).all():
                 raise ModelContractError(
                     f"Input {name!r} contains NaN or infinite values."
@@ -284,6 +289,15 @@ class TensorInferenceEngine:
                     self._request.get_output_tensor(index).data,
                     copy=True,
                 )
+                if np.issubdtype(output.dtype, np.complexfloating):
+                    raise RuntimeError(
+                        f"Model output {name!r} is complex-valued; image rendering "
+                        "requires a model-specific conversion."
+                    )
+                if not np.issubdtype(output.dtype, np.number):
+                    raise RuntimeError(
+                        f"Model output {name!r} is not numeric."
+                    )
                 if not np.isfinite(output).all():
                     raise RuntimeError(
                         f"Model output {name!r} contains NaN or infinite values."
