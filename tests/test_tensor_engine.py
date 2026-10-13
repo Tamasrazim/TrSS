@@ -14,6 +14,16 @@ from test_engine import (
     FakeOutputTensor,
     install_fake_openvino,
 )
+import xess5.tensor_engine as tensor_engine_module
+
+
+def install_tensor_openvino(monkeypatch, tmp_path, core):
+    # Patch the backend symbol imported by TensorInferenceEngine itself.
+    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+    monkeypatch.setattr(
+        tensor_engine_module, "load_openvino", lambda: FakeOpenVINO(core)
+    )
+    return model_file
 
 
 class SumInferRequest:
