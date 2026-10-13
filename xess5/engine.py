@@ -83,6 +83,19 @@ class ImageInferenceEngine:
 
         if layout not in ("NCHW", "NHWC"):
             raise ModelContractError(f"Unsupported tensor layout: {layout!r}.")
+        for label, value_range in (
+            ("input", input_range),
+            ("output", output_range),
+        ):
+            if (
+                len(value_range) != 2
+                or not np.isfinite(value_range[0])
+                or not np.isfinite(value_range[1])
+                or value_range[0] >= value_range[1]
+            ):
+                raise ModelContractError(
+                    f"The {label} range must contain two finite values in ascending order."
+                )
         if not self.model_path.is_file():
             raise FileNotFoundError(f"Model file does not exist: {self.model_path}")
 
@@ -93,13 +106,25 @@ class ImageInferenceEngine:
             raise BackendUnavailable(f"OpenVINO could not initialize: {exc}") from exc
 
         exposed_devices = [str(item) for item in self.core.available_devices]
-        if device not in exposed_devices:
+        selected_device = device
+        if selected_device not in exposed_devices and selected_device.upper() == "GPU":
+            # Some systems expose multiple adapters as GPU.0, GPU.1, etc.
+            # Use the first GPU only for the generic GPU alias; explicit IDs remain selectable.
+            numbered_gpus = [
+                item for item in exposed_devices
+                if item.upper().startswith("GPU.")
+            ]
+            if numbered_gpus:
+                selected_device = numbered_gpus[0]
+
+        if selected_device not in exposed_devices:
             available = ", ".join(exposed_devices) if exposed_devices else "none"
             raise BackendUnavailable(
                 f"Requested device {device!r} is not available. OpenVINO reports: {available}. "
                 "For Intel Arc, install a compatible Intel graphics driver and the optional "
                 'XESS5 GPU dependencies with: python -m pip install -e ".[gpu]"'
             )
+        self.device = selected_device
 
         try:
             model = self.core.read_model(str(self.model_path))
