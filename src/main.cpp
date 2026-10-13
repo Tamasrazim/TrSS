@@ -198,6 +198,7 @@ void BuildReference(HWND window, AppState& state) {
         FrameImage inputCopy = state.original;
         state.processing = true;
         EnableWindow(state.buildButton, FALSE);
+        EnableWindow(state.openButton, FALSE); // Keep the input paired with its result.
         SetStatus(window, state, L"Building a conventional detail reference...");
 
         std::thread worker(
@@ -228,6 +229,7 @@ void BuildReference(HWND window, AppState& state) {
     } catch (...) {
         state.processing = false;
         EnableWindow(state.buildButton, TRUE);
+        EnableWindow(state.openButton, TRUE);
         delete result;
         SetStatus(window, state, L"Could not start the processing worker.");
     }
@@ -507,6 +509,7 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message,
 
         state->processing = false;
         EnableWindow(state->buildButton, TRUE);
+        EnableWindow(state->openButton, TRUE);
 
         if (!result->error.empty()) {
             SetStatus(window, *state, L"Reference pass failed: " + result->error);
