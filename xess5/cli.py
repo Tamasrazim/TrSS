@@ -24,6 +24,7 @@ from .rendering.adapter import (
     adapt_frame,
     preview_from_outputs,
 )
+from .rendering.hnet import HNetContractError, HNetControls, HNetFrameEngine
 
 
 def _range_argument(value: str) -> tuple[float, float]:
@@ -130,6 +131,26 @@ def _build_parser() -> argparse.ArgumentParser:
     render_frame.add_argument("--preview-output", type=Path, help="optional PNG/JPEG preview; requires an explicit RGB output declaration in the adapter spec")
     render_frame.add_argument("--history-output", type=Path, help="optional .npy normalized RGB HWC output to feed as the next frame's history")
     render_frame.add_argument("--report", type=Path, help="optional JSON report of preprocessing and inference timings")
+
+    hnet_frame = commands.add_parser(
+        "hnet-frame",
+        help="run a supplied 16-channel HNet-style model on one local frame",
+    )
+    hnet_frame.add_argument("--model", required=True, type=Path, help="user-supplied compatible model; weights are not bundled")
+    hnet_frame.add_argument("--color", required=True, type=Path, help="source screenshot/frame")
+    hnet_frame.add_argument("--output", required=True, type=Path, help="final RGB image path")
+    hnet_frame.add_argument("--history", type=Path, help="optional previous RGB HWC float32 .npy in 0..1")
+    hnet_frame.add_argument("--history-output", type=Path, help="optional next RGB HWC float32 .npy in 0..1")
+    hnet_frame.add_argument("--head-output", type=Path, help="optional raw four-channel neural head .npy")
+    hnet_frame.add_argument("--device", default="ARC", help="ARC (default) or exact GPU.X ID")
+    hnet_frame.add_argument("--output-layout", choices=("NCHW", "NHWC"), default="NCHW")
+    hnet_frame.add_argument("--frame-index", type=int, default=0, help="deterministic noise frame index")
+    hnet_frame.add_argument("--style-index", type=int, default=0, help="documented style index from 0 through 127")
+    hnet_frame.add_argument("--tone-strength", type=float, default=1.0)
+    hnet_frame.add_argument("--structure-strength", type=float, default=1.0)
+    hnet_frame.add_argument("--warmup", type=int, default=1, help="extra warm-up calls after the priming call")
+    hnet_frame.add_argument("--iterations", type=int, default=5, help="measured full-frame calls (default: 5)")
+    hnet_frame.add_argument("--report", type=Path, help="optional JSON timing and model-contract report")
     return parser
 
 
@@ -736,6 +757,221 @@ def _run_render_frame(args: argparse.Namespace) -> int:
     return 0
 
 
+def _safe_hnet_paths(
+    model_path: Path,
+    color_path: Path,
+    output_path: Path,
+    history_input: Path | None,
+    history_output: Path | None,
+    head_output: Path | None,
+    report_path: Path | None,
+) -> None:
+    """Refuse path collisions that could destroy the model, input, or another output."""
+    model = model_path.expanduser().resolve()
+    protected = {model, color_path.expanduser().resolve()}
+    if model.suffix.casefold() == ".xml":
+        weights = model.with_suffix(".bin")
+        if weights.exists():
+            protected.add(weights.resolve())
+    if history_input is not None:
+        protected.add(history_input.expanduser().resolve())
+
+    output_image = output_path.expanduser().resolve()
+    optional_outputs = [
+        path.expanduser().resolve()
+        for path in (history_output, head_output, report_path)
+        if path is not None
+    ]
+    all_destinations = [output_image, *optional_outputs]
+    if len(set(all_destinations)) != len(all_destinations):
+        raise ValueError("The image, history, neural-head, and report outputs must use different paths.")
+    conflicts = sorted(str(path) for path in all_destinations if path in protected)
+    if conflicts:
+        raise ValueError(
+            "Output path would overwrite the model or an input file: " + ", ".join(conflicts)
+        )
+
+    if output_image.suffix.casefold() not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
+        raise ValueError("Image output must use PNG, JPEG, WebP, or BMP.")
+    for path, label in ((history_output, "history"), (head_output, "neural-head")):
+        if path is not None and path.suffix.casefold() != ".npy":
+            raise ValueError(f"{label} output must use the .npy extension.")
+
+
+def _load_hwc_history(path: Path) -> np.ndarray:
+    """Load a caller-provided prior RGB output without enabling Python object loading."""
+    try:
+        history = np.load(path, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Could not load history tensor {path}: {exc}") from exc
+    if (
+        not isinstance(history, np.ndarray)
+        or history.dtype.hasobject
+        or history.ndim != 3
+        or history.shape[2] != 3
+        or not np.issubdtype(history.dtype, np.number)
+        or np.issubdtype(history.dtype, np.complexfloating)
+    ):
+        raise ValueError("History must be a numeric HxWx3 RGB .npy tensor.")
+    history = np.asarray(history, dtype=np.float32)
+    if not np.isfinite(history).all() or np.any(history < 0.0) or np.any(history > 1.0):
+        raise ValueError("History must contain finite RGB values in the 0..1 range.")
+    return history
+
+
+def _run_hnet_frame(args: argparse.Namespace) -> int:
+    """Run the specific 16-input-channel/4-output-channel frame adapter."""
+    if args.warmup < 0:
+        raise ValueError("--warmup cannot be negative.")
+    if args.iterations < 1:
+        raise ValueError("--iterations must be at least 1.")
+    if args.frame_index < 0:
+        raise ValueError("--frame-index cannot be negative.")
+    if not 0 <= args.style_index <= 127:
+        raise ValueError("--style-index must be between 0 and 127.")
+    if not np.isfinite(args.tone_strength) or not np.isfinite(args.structure_strength):
+        raise ValueError("Tone and structure strengths must be finite.")
+    if not args.model.is_file():
+        raise FileNotFoundError(f"Model file does not exist: {args.model}")
+    if not args.color.is_file():
+        raise FileNotFoundError(f"Source image does not exist: {args.color}")
+    if args.history is not None and not args.history.is_file():
+        raise FileNotFoundError(f"History tensor does not exist: {args.history}")
+
+    _safe_hnet_paths(
+        args.model,
+        args.color,
+        args.output,
+        args.history,
+        args.history_output,
+        args.head_output,
+        args.report,
+    )
+
+    try:
+        with Image.open(args.color) as opened:
+            # The model contract is float RGB in 0..1, not display bytes.
+            color = np.asarray(opened.convert("RGB"), dtype=np.float32) / np.float32(255.0)
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"Could not decode source frame {args.color}: {exc}") from exc
+
+    previous = _load_hwc_history(args.history) if args.history is not None else None
+    if previous is not None and previous.shape != color.shape:
+        raise ValueError(
+            f"History shape {previous.shape!r} must match the current frame {color.shape!r}."
+        )
+
+    controls = HNetControls(
+        style_index=args.style_index,
+        tone_strength=args.tone_strength,
+        structure_strength=args.structure_strength,
+    )
+
+    engine_load_started = perf_counter()
+    tensor_engine = TensorInferenceEngine(args.model, device=args.device)
+    engine = HNetFrameEngine(tensor_engine, output_layout=args.output_layout)
+    engine_load_ms = (perf_counter() - engine_load_started) * 1000.0
+
+    first_started = perf_counter()
+    last_result = engine.process_frame(
+        color, history=previous, frame_index=args.frame_index, controls=controls
+    )
+    priming_wall_ms = (perf_counter() - first_started) * 1000.0
+    priming_compile_ms = last_result.compile_ms
+
+    for _ in range(args.warmup):
+        last_result = engine.process_frame(
+            color, history=previous, frame_index=args.frame_index, controls=controls
+        )
+
+    neural_ms: list[float] = []
+    total_ms: list[float] = []
+    for _ in range(args.iterations):
+        started = perf_counter()
+        last_result = engine.process_frame(
+            color, history=previous, frame_index=args.frame_index, controls=controls
+        )
+        total_ms.append((perf_counter() - started) * 1000.0)
+        neural_ms.append(last_result.inference_ms)
+
+    output_path = args.output.expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rgb = np.rint(np.clip(last_result.image, 0.0, 1.0) * 255.0).astype(np.uint8)
+    Image.fromarray(np.ascontiguousarray(rgb)).save(output_path)
+
+    history_path = args.history_output.expanduser().resolve() if args.history_output else None
+    head_path = args.head_output.expanduser().resolve() if args.head_output else None
+    if history_path is not None:
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(history_path, last_result.history.astype(np.float32), allow_pickle=False)
+    if head_path is not None:
+        head_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(head_path, last_result.head.astype(np.float32), allow_pickle=False)
+
+    report: dict[str, object] = {
+        "engine": "XESS5",
+        "engine_version": __version__,
+        "operation": "hnet_contract_frame_inference",
+        "model": str(args.model.resolve()),
+        "device_requested": args.device,
+        "device_selected": last_result.device,
+        "device_name": last_result.device_name,
+        "input_frame": str(args.color.resolve()),
+        "input_size": list(color.shape[1::-1]),
+        "network_size": [
+            last_result.geometry.network_width,
+            last_result.geometry.network_height,
+        ],
+        "feature_contract": {
+            "input_layout": "NCHW",
+            "input_shape": [
+                1, 16,
+                last_result.geometry.network_height,
+                last_result.geometry.network_width,
+            ],
+            "output_layout": args.output_layout,
+            "output_channels": 4,
+            "frame_index": args.frame_index,
+            "style_index": args.style_index,
+            "tone_strength": args.tone_strength,
+            "structure_strength": args.structure_strength,
+            "history_supplied": previous is not None,
+            "motion_reprojection": "not performed; caller supplied no scene motion field",
+        },
+        "engine_load_ms": round(engine_load_ms, 3),
+        "priming_wall_ms": round(priming_wall_ms, 3),
+        "priming_compile_ms": round(priming_compile_ms, 3),
+        "warmup_calls": args.warmup,
+        "iterations": args.iterations,
+        "neural_inference_ms": {
+            "median": round(float(np.median(neural_ms)), 3),
+            "p95": round(_percentile(neural_ms, 95), 3),
+        },
+        "complete_frame_ms": {
+            "median": round(float(np.median(total_ms)), 3),
+            "p95": round(_percentile(total_ms, 95), 3),
+        },
+        "inference_fps_equivalent": (
+            round(1000.0 / float(np.median(neural_ms)), 2)
+            if float(np.median(neural_ms)) > 0 else None
+        ),
+        "outputs": {
+            "image": str(output_path),
+            "history": str(history_path) if history_path is not None else None,
+            "raw_head": str(head_path) if head_path is not None else None,
+        },
+        "note": (
+            "HNet-style contract path only. This does not bundle or identify any trained model "
+            "weights, does not prove vendor-compatible model inference, does not capture a live "
+            "game, and does not establish DLSS 5 compatibility or in-game FPS."
+        ),
+    }
+    print(json.dumps(report, indent=2))
+    if args.report:
+        _write_json(args.report, report)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -750,8 +986,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_tensor_inference(args)
         if args.command == "render-frame":
             return _run_render_frame(args)
+        if args.command == "hnet-frame":
+            return _run_hnet_frame(args)
         parser.error("unknown command")
-    except (BackendUnavailable, AdapterSpecError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+    except (BackendUnavailable, AdapterSpecError, HNetContractError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"XESS5 error: {exc}", file=sys.stderr)
         return 2
     return 0
