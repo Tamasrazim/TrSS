@@ -73,6 +73,22 @@ def test_mirror_padding_repeats_when_the_network_field_is_much_larger():
     assert np.array_equal(geometry.crop(extended), source)
 
 
+def test_single_pixel_source_can_be_mirror_padded_safely():
+    geometry = NetworkGeometry(
+        output_width=1,
+        output_height=1,
+        network_width=6,
+        network_height=5,
+    )
+    source = np.asarray([[[0.375]]], dtype=np.float32)
+
+    extended = geometry.extend(source)
+
+    assert extended.shape == (5, 6, 1)
+    assert np.all(extended == np.float32(0.375))
+    assert np.array_equal(geometry.crop(extended), source)
+
+
 def test_noise_is_repeatable_for_a_frame_and_changes_with_frame_index():
     first = deterministic_noise(9, 13, frame_index=4)
     again = deterministic_noise(9, 13, frame_index=4)
