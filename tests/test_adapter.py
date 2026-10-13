@@ -203,3 +203,65 @@ def test_bilinear_resampling_has_expected_midpoint():
     assert output.shape == (1, 1, 4, 3)
     assert output[0, 0, 1, 0] == pytest.approx(0.25)
     assert output[0, 0, 2, 0] == pytest.approx(0.75)
+
+
+
+def test_preview_binding_converts_declared_nchw_output_to_rgb_float():
+    from xess5.rendering.adapter import preview_from_outputs
+
+    spec = ModelAdapterSpec.from_dict({
+        "version": 1,
+        "inputs": {"color": binding("color", "NCHW", (0, 255), (0, 1))},
+        "preview_output": {
+            "port": "rgb",
+            "layout": "NCHW",
+            "source_range": [-1, 1],
+            "channel_order": "RGB",
+        },
+    })
+    raw = np.asarray([[[[-1, 1]], [[0, 0]], [[1, -1]]]], dtype=np.float32)
+    preview = preview_from_outputs({"rgb": raw}, spec, target_size=(2, 1))
+
+    assert preview.shape == (1, 2, 3)
+    assert preview.dtype == np.float32
+    assert preview[0, 0].tolist() == pytest.approx([0, 0.5, 1])
+    assert preview[0, 1].tolist() == pytest.approx([1, 0.5, 0])
+
+
+def test_preview_binding_reorders_bgr_to_rgb():
+    from xess5.rendering.adapter import preview_from_outputs
+
+    spec = ModelAdapterSpec.from_dict({
+        "version": 1,
+        "inputs": {"color": binding("color", "NCHW", (0, 255), (0, 1))},
+        "preview_output": {
+            "port": "rgb",
+            "layout": "NHWC",
+            "source_range": [0, 1],
+            "channel_order": "BGR",
+        },
+    })
+    raw = np.asarray([[[[0.1, 0.2, 0.9]]]], dtype=np.float32)
+    preview = preview_from_outputs({"rgb": raw}, spec, target_size=(1, 1))
+
+    assert preview[0, 0].tolist() == pytest.approx([0.9, 0.2, 0.1])
+
+
+def test_preview_binding_refuses_feature_tensors():
+    from xess5.rendering.adapter import preview_from_outputs
+
+    spec = ModelAdapterSpec.from_dict({
+        "version": 1,
+        "inputs": {"color": binding("color", "NCHW", (0, 255), (0, 1))},
+        "preview_output": {
+            "port": "features",
+            "layout": "NCHW",
+            "source_range": [0, 1],
+        },
+    })
+    with pytest.raises(AdapterSpecError, match="Feature tensors"):
+        preview_from_outputs(
+            {"features": np.zeros((1, 16, 2, 2), dtype=np.float32)},
+            spec,
+            target_size=(2, 2),
+        )
