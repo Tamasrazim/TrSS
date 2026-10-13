@@ -370,3 +370,129 @@ def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
     # otherwise replace the exact .npy file that supplied the source depth data.
     with pytest.raises(ValueError, match="would overwrite"):
         cli._run_render_frame(args)
+
+
+
+def test_hnet_frame_command_runs_one_model_contract_and_writes_outputs(monkeypatch, tmp_path):
+    model = tmp_path / "hnet.onnx"
+    color_path = tmp_path / "frame.png"
+    history_input = tmp_path / "previous.npy"
+    output_path = tmp_path / "output" / "frame.png"
+    history_output = tmp_path / "output" / "history.npy"
+    head_output = tmp_path / "output" / "head.npy"
+    report_path = tmp_path / "report" / "run.json"
+
+    model.write_bytes(b"mock model")
+    Image.new("RGB", (2, 2), (255, 128, 0)).save(color_path)
+    np.save(history_input, np.full((2, 2, 3), 0.6, dtype=np.float32), allow_pickle=False)
+
+    class FakeTensorEngine:
+        def __init__(self, model_path, *, device):
+            self.model_path = str(Path(model_path).resolve())
+            assert device == "ARC"
+
+    class FakeHNetEngine:
+        calls = 0
+
+        def __init__(self, tensor_engine, *, output_layout):
+            assert output_layout == "NCHW"
+            self.tensor_engine = tensor_engine
+
+        def process_frame(self, color, *, history, frame_index, controls):
+            type(self).calls += 1
+            assert color.shape == (2, 2, 3)
+            assert color[0, 0].tolist() == pytest.approx([1.0, 128 / 255, 0.0])
+            assert history.shape == (2, 2, 3)
+            assert np.all(history == 0.6)
+            assert frame_index == 7
+            assert controls.style_index == 2
+            assert controls.tone_strength == pytest.approx(0.75)
+            assert controls.structure_strength == pytest.approx(1.25)
+            image = np.full((2, 2, 3), 0.25, dtype=np.float32)
+            next_history = np.full((2, 2, 3), 0.35, dtype=np.float32)
+            head = np.full((320, 320, 4), 0.1, dtype=np.float32)
+            return SimpleNamespace(
+                image=image,
+                history=next_history,
+                head=head,
+                geometry=SimpleNamespace(network_width=320, network_height=320),
+                device="GPU.1",
+                device_name="Intel Arc B580 Graphics",
+                compile_ms=8.0 if type(self).calls == 1 else 0.0,
+                inference_ms=3.0,
+                total_ms=3.5,
+            )
+
+    monkeypatch.setattr(cli, "TensorInferenceEngine", FakeTensorEngine)
+    monkeypatch.setattr(cli, "HNetFrameEngine", FakeHNetEngine)
+    args = cli._build_parser().parse_args([
+        "hnet-frame",
+        "--model", str(model),
+        "--color", str(color_path),
+        "--output", str(output_path),
+        "--history", str(history_input),
+        "--history-output", str(history_output),
+        "--head-output", str(head_output),
+        "--device", "ARC",
+        "--output-layout", "NCHW",
+        "--frame-index", "7",
+        "--style-index", "2",
+        "--tone-strength", "0.75",
+        "--structure-strength", "1.25",
+        "--warmup", "1",
+        "--iterations", "2",
+        "--report", str(report_path),
+    ])
+
+    assert cli._run_hnet_frame(args) == 0
+    assert FakeHNetEngine.calls == 4  # priming + warm-up + two measured frames
+    assert Image.open(output_path).getpixel((0, 0)) == (64, 64, 64)
+    saved_history = np.load(history_output, allow_pickle=False)
+    assert saved_history.shape == (2, 2, 3)
+    assert saved_history.dtype == np.float32
+    assert np.all(saved_history == 0.35)
+    saved_head = np.load(head_output, allow_pickle=False)
+    assert saved_head.shape == (320, 320, 4)
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["device_name"] == "Intel Arc B580 Graphics"
+    assert report["priming_compile_ms"] == 8.0
+    assert report["feature_contract"]["frame_index"] == 7
+    assert report["feature_contract"]["style_index"] == 2
+    assert report["feature_contract"]["history_supplied"] is True
+    assert report["iterations"] == 2
+    assert report["outputs"]["history"] == str(history_output.resolve())
+    assert report["outputs"]["raw_head"] == str(head_output.resolve())
+
+
+def test_hnet_frame_refuses_output_overwriting_source_or_model(tmp_path):
+    model = tmp_path / "hnet.onnx"
+    color = tmp_path / "frame.png"
+    model.write_bytes(b"mock model")
+    Image.new("RGB", (1, 1)).save(color)
+
+    with pytest.raises(ValueError, match="overwrite"):
+        cli._safe_hnet_paths(model, color, color, None, None, None, None)
+    with pytest.raises(ValueError, match="overwrite"):
+        cli._safe_hnet_paths(model, color, model, None, None, None, None)
+    with pytest.raises(ValueError, match="must use the .npy"):
+        cli._safe_hnet_paths(
+            model, color, tmp_path / "out.png", None,
+            tmp_path / "history.png", None, None
+        )
+
+
+def test_hnet_frame_parser_rejects_invalid_style_index(monkeypatch, tmp_path):
+    model = tmp_path / "hnet.onnx"
+    color = tmp_path / "frame.png"
+    model.write_bytes(b"model")
+    Image.new("RGB", (1, 1)).save(color)
+    args = cli._build_parser().parse_args([
+        "hnet-frame",
+        "--model", str(model),
+        "--color", str(color),
+        "--output", str(tmp_path / "out.png"),
+        "--style-index", "128",
+    ])
+    with pytest.raises(ValueError, match="between 0 and 127"):
+        cli._run_hnet_frame(args)
