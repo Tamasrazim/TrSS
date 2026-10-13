@@ -12,7 +12,7 @@ XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580
 - `xess5/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
 - `xess5/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
 - `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
-- `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI does not build all SPIR-V shaders or execute the native backend on a GPU.
+- `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI builds the native runtime, host helpers, and runtime SPIR-V shaders, but does not execute the native backend on a GPU.
 
 ## GPU selection
 
