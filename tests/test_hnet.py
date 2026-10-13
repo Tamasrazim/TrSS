@@ -169,7 +169,7 @@ def test_head_composition_uses_current_color_as_first_history():
 
 def test_head_composition_rejects_wrong_channels_and_nan():
     color = np.zeros((2, 2, 3), dtype=np.float32)
-    with pytest.raises(HNetContractError, match="four"):
+    with pytest.raises(HNetContractError, match="head must have shape"):
         compose_head(np.zeros((2, 2, 3), dtype=np.float32), color)
     bad = np.zeros((2, 2, 4), dtype=np.float32)
     bad[0, 0, 0] = np.nan
@@ -218,5 +218,5 @@ def test_hnet_engine_runs_the_16_to_4_frame_contract_and_crops_output():
 
 
 def test_hnet_engine_rejects_the_generic_rgb_only_model_contract():
-    with pytest.raises(HNetContractError, match="\[1,16,H,W\]"):
+    with pytest.raises(HNetContractError, match=r"\[1,16,H,W\]"):
         HNetFrameEngine(FakeHNetTensorEngine(input_shape=(1, 3, None, None)))
