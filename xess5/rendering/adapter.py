@@ -316,11 +316,16 @@ def _source_for(binding: InputBinding, frame: FramePacket, history: np.ndarray |
         raise AdapterSpecError("Conditioning must be a one-dimensional feature vector.")
 
     if binding.channel_order == "BGR":
-        if result.ndim != 3 or result.shape[2] < 3:
+        if result.ndim != 3 or result.shape[2] not in (3, 4):
             raise AdapterSpecError(
-                f"Source {binding.source!r} cannot be converted to BGR because it has fewer than 3 channels."
+                f"Source {binding.source!r} cannot be converted to BGR because it does not have "
+                "3 RGB channels, optionally followed by alpha."
             )
-        result = result[:, :, :3][:, :, ::-1]
+        if result.shape[2] == 4:
+            # Change RGB to BGR but preserve alpha as the fourth channel (BGRA).
+            result = result[:, :, [2, 1, 0, 3]]
+        else:
+            result = result[:, :, ::-1]
 
     return result
 
