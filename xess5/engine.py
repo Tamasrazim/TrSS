@@ -147,7 +147,10 @@ class ImageInferenceEngine:
 
         target_height = model_height or 0
         target_width = model_width or 0
-        self._model = model
+        # Keep the original shape contract so dynamic models can be safely
+        # re-specialized when a later frame uses a different resolution.
+        self._base_model = model.clone()
+        self._model = self._base_model.clone()
 
         # The actual dimensions are known when infer() is called. Leave truly
         # dynamic spatial dimensions dynamic until then; the model is reshaped
@@ -182,6 +185,8 @@ class ImageInferenceEngine:
         if self._compiled is not None and self._prepared_shape == shape_key:
             return
 
+        # Reshape a fresh model clone; never mutate the original contract.
+        self._model = self._base_model.clone()
         input_port = self._model.inputs[0]
         current_shape = [_dimension_length(item) for item in input_port.partial_shape]
         resolved_shape = []
