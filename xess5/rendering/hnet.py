@@ -63,14 +63,14 @@ class NetworkGeometry:
     def _mirror_indices(source_extent: int, target_extent: int) -> np.ndarray:
         if source_extent <= 0 or target_extent < source_extent:
             raise HNetContractError("Invalid mirror-padding dimensions.")
-        index = np.arange(target_extent, dtype=np.int64)
-        # Reflect across the last valid pixel without repeating the edge:
-        # 0, 1, 2, 3, 2, 1, ... for a source extent of four.
-        return np.where(
-            index < source_extent,
-            index,
-            np.maximum(0, 2 * source_extent - 2 - index),
-        )
+        # Mirror reflection must repeat for padding wider than one reflection.
+        # For a four-pixel row this gives 0, 1, 2, 3, 2, 1, 0, 1, 2, 3, ...
+        # A one-pixel row has no reflection period, so every padded pixel uses 0.
+        if source_extent == 1:
+            return np.zeros(target_extent, dtype=np.int64)
+        period = 2 * source_extent - 2
+        folded = np.arange(target_extent, dtype=np.int64) % period
+        return np.where(folded < source_extent, folded, period - folded)
 
     def source_rows(self) -> np.ndarray:
         return self._mirror_indices(self.output_height, self.network_height)
