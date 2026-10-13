@@ -206,3 +206,145 @@ def test_tensor_output_cannot_overwrite_an_input_tensor(monkeypatch, tmp_path):
     ])
     with pytest.raises(ValueError, match="would overwrite"):
         cli._run_tensor_inference(args)
+
+
+
+def test_render_frame_adapts_color_and_depth_and_reports_timings(monkeypatch, tmp_path):
+    model = tmp_path / "render.onnx"
+    spec = tmp_path / "adapter.json"
+    color_path = tmp_path / "frame.png"
+    depth_path = tmp_path / "depth.npy"
+    output_dir = tmp_path / "output"
+    report_path = tmp_path / "report" / "frame.json"
+
+    model.write_bytes(b"mock model for this CLI test")
+    Image.new("RGB", (2, 2), (255, 0, 0)).save(color_path)
+    np.save(depth_path, np.full((2, 2), 0.75, dtype=np.float32), allow_pickle=False)
+    spec.write_text(json.dumps({
+        "version": 1,
+        "inputs": {
+            "color": {
+                "source": "color",
+                "layout": "NCHW",
+                "source_range": [0, 255],
+                "target_range": [0, 1],
+            },
+            "depth": {
+                "source": "depth",
+                "layout": "NCHW",
+                "source_range": [0, 1],
+                "target_range": [0, 1],
+                "resize": "nearest",
+            },
+        },
+    }), encoding="utf-8")
+
+    class FakeTensorEngine:
+        calls = 0
+
+        def __init__(self, model_path, *, device):
+            self.model_path = str(Path(model_path).resolve())
+            assert device == "ARC"
+            self.input_shapes = {
+                "color": (1, 3, 2, 2),
+                "depth": (1, 1, 2, 2),
+            }
+
+        def infer(self, inputs):
+            type(self).calls += 1
+            assert inputs["color"].shape == (1, 3, 2, 2)
+            assert inputs["color"][0, :, 0, 0].tolist() == pytest.approx([1, 0, 0])
+            assert np.all(inputs["depth"] == 0.75)
+            compile_ms = 9.0 if type(self).calls == 1 else 0.0
+            return SimpleNamespace(
+                outputs={"render/rgb": np.full((1, 3, 2, 2), 0.3, dtype=np.float32)},
+                input_shapes={name: tuple(value.shape) for name, value in inputs.items()},
+                output_shapes={"render/rgb": (1, 3, 2, 2)},
+                compile_ms=compile_ms,
+                inference_ms=4.0,
+                total_ms=4.5,
+                device="GPU.1",
+                device_name="Intel Arc B580 Graphics",
+                model_path=self.model_path,
+            )
+
+    monkeypatch.setattr(cli, "TensorInferenceEngine", FakeTensorEngine)
+    args = cli._build_parser().parse_args([
+        "render-frame",
+        "--model", str(model),
+        "--spec", str(spec),
+        "--color", str(color_path),
+        "--depth", str(depth_path),
+        "--output-dir", str(output_dir),
+        "--device", "ARC",
+        "--warmup", "1",
+        "--iterations", "2",
+        "--frame-id", "12",
+        "--timestamp", "1.25",
+        "--scene-id", "test-scene",
+        "--report", str(report_path),
+    ])
+
+    assert cli._run_render_frame(args) == 0
+    assert FakeTensorEngine.calls == 4  # prime + 1 warm-up + 2 measurements
+    saved = np.load(output_dir / "render_rgb.npy", allow_pickle=False)
+    assert np.all(saved == 0.3)
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["device_name"] == "Intel Arc B580 Graphics"
+    assert report["priming_compile_ms"] == 9.0
+    assert report["frame"]["frame_id"] == 12
+    assert report["frame"]["scene_id"] == "test-scene"
+    assert report["frame"]["available_sources"] == ["color", "depth"]
+    assert report["iterations"] == 2
+    assert report["output_tensors"]["render/rgb"]["path"].endswith("render_rgb.npy")
+
+
+def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
+    model = tmp_path / "render.onnx"
+    spec = tmp_path / "adapter.json"
+    color_path = tmp_path / "frame.png"
+    model.write_bytes(b"mock model")
+    Image.new("RGB", (1, 1), (20, 30, 40)).save(color_path)
+    spec.write_text(json.dumps({
+        "version": 1,
+        "inputs": {
+            "color": {
+                "source": "color",
+                "layout": "NCHW",
+                "source_range": [0, 255],
+                "target_range": [0, 1],
+            },
+        },
+    }), encoding="utf-8")
+
+    class FakeTensorEngine:
+        def __init__(self, model_path, *, device):
+            self.model_path = str(Path(model_path).resolve())
+            self.input_shapes = {"color": (1, 3, 1, 1)}
+
+        def infer(self, inputs):
+            return SimpleNamespace(
+                outputs={"frame": np.zeros((1, 3, 1, 1), dtype=np.float32)},
+                input_shapes={"color": (1, 3, 1, 1)},
+                output_shapes={"frame": (1, 3, 1, 1)},
+                compile_ms=0.0,
+                inference_ms=1.0,
+                total_ms=1.0,
+                device="GPU.1",
+                device_name="Intel Arc B580",
+                model_path=self.model_path,
+            )
+
+    monkeypatch.setattr(cli, "TensorInferenceEngine", FakeTensorEngine)
+    args = cli._build_parser().parse_args([
+        "render-frame",
+        "--model", str(model),
+        "--spec", str(spec),
+        "--color", str(color_path),
+        "--output-dir", str(tmp_path),
+        "--warmup", "0",
+        "--iterations", "1",
+    ])
+    with pytest.raises(ValueError, match="would overwrite"):
+        cli._run_render_frame(args)
