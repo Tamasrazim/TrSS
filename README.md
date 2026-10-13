@@ -1,8 +1,35 @@
-# XESS5
+# XESS5 (working name)
 
-**A Python-first neural graphics engine for Intel Arc.**
+**A Python-first neural graphics engine targeting Intel Arc hardware.**
 
 XESS5 is being developed around actual model inference, graphics-frame contracts, temporal state, and GPU diagnostics, with the Intel Arc B580 12 GB as the first hardware target. The aim is a local neural-rendering engine that we own and can integrate with a documented graphics path—not a wrapper around someone else's app.
+
+> **Naming note:** Intel already uses **XeSS** as the name of its own graphics upscaling technology. To avoid brand confusion, XESS5 should be treated as a temporary repository/project name rather than a public product brand. This project is independent and is not affiliated with or endorsed by Intel or NVIDIA.
+
+## Suggested replacement name
+
+### **NeuraWeft**
+*A local-first neural frame-reconstruction and graphics engine.*
+
+“NeuraWeft” suggests neural processing woven into a sequence of rendered frames, without using Intel’s XeSS branding. It is a **candidate only**, not a confirmed available trademark or domain. Check relevant trademark databases and name/domain availability before formally adopting it. The repository name, package name, and existing `xess5` CLI commands intentionally remain unchanged in this README-only update so the documentation continues to match the current code.
+
+## Project progress
+
+**Overall engineering estimate toward a complete, live, physically validated neural renderer:**
+
+`███████░░░░░░░░░░░░░` **35%**
+
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works.
+
+| Workstream | Current status |
+| --- | --- |
+| Python inference, model inspection, and device selection | Implemented |
+| Frame/tensor contracts and offline frame adapters | Implemented |
+| Temporal-history safety and CPU-side tests | Implemented |
+| Native Vulkan/XMX execution path | Experimental; hardware validation remains |
+| Verified neural-rendering model and compatible weights | Not yet bundled or validated |
+| Live game/desktop frame capture and integration | Not implemented |
+| Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
 This is independent research software, not an Intel or NVIDIA product. It does not claim to be NVIDIA DLSS 5, and the engine must not label a conventional filter or generic super-resolution model as neural rendering.
 
