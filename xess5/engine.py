@@ -145,8 +145,6 @@ class ImageInferenceEngine:
         self._width = model_width
         self._input_dtype = _numpy_dtype(input_port.element_type)
 
-        target_height = model_height or 0
-        target_width = model_width or 0
         # Keep the original shape contract so dynamic models can be safely
         # re-specialized when a later frame uses a different resolution.
         self._base_model = model.clone()
@@ -155,8 +153,6 @@ class ImageInferenceEngine:
         # The actual dimensions are known when infer() is called. Leave truly
         # dynamic spatial dimensions dynamic until then; the model is reshaped
         # to the actual image in _prepare_model().
-        self._input_name = input_port.get_any_name()
-        self._output_name = output_port.get_any_name()
         self._device_name = self._read_device_name(device)
         self._compiled = None
         self._prepared_shape: tuple[int, ...] | None = None
