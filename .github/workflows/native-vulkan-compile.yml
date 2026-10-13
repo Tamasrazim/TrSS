@@ -1,4 +1,4 @@
-name: Native Vulkan source compile
+name: Native Vulkan and XMX build
 
 on:
   push:
@@ -9,21 +9,24 @@ permissions:
   contents: read
 
 jobs:
-  compile-xmx:
+  build-xmx:
     runs-on: ubuntu-latest
     steps:
       - name: Check out XESS5
         uses: actions/checkout@v4
 
-      - name: Install Vulkan development headers and loader
+      - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev
+          sudo apt-get install -y cmake gcc libvulkan-dev glslang-tools
 
-      - name: Compile the native XMX Vulkan runtime
+      - name: Configure the vendored native backend
         run: |
-          cc -std=gnu11 -O2 -fPIC -shared \
-            -I/usr/include \
-            -o /tmp/libxmx.so \
-            vendor/dlss-nr-intel/src/gpu/libxmx.c \
-            -lvulkan
+          cmake -S vendor/dlss-nr-intel \
+            -B vendor/dlss-nr-intel/work/cmake \
+            -DNR_BUILD_LAYER=OFF \
+            -DNR_BUILD_TESTS=OFF
+
+      - name: Build the Vulkan runtime, host helpers, and every runtime shader
+        run: |
+          cmake --build vendor/dlss-nr-intel/work/cmake --parallel 2
