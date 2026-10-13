@@ -47,6 +47,13 @@ def _dimension_length(dimension: Any) -> int | None:
 def _numpy_dtype(element_type: Any) -> np.dtype:
     """Map model input precision to a NumPy type supported by this adapter."""
     label = str(element_type).lower()
+    # "bfloat16" contains the text "float16", but uses a different bit layout.
+    # Do not silently quantize it as IEEE FP16.
+    if "bf16" in label or "bfloat16" in label:
+        raise ModelContractError(
+            f"Model input precision {element_type!s} is bfloat16, which this image "
+            "adapter does not support yet."
+        )
     if "f16" in label or "float16" in label:
         return np.dtype(np.float16)
     if "f32" in label or "float32" in label:
