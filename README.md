@@ -26,6 +26,18 @@ The target is real rendered imagery, not a mock interface. Visual quality, frame
 - A working first rendering path does not guarantee higher FPS. Neural processing consumes GPU time, memory bandwidth, and VRAM.
 - Intel Arc B580 support must be verified by running and measuring the application on that card.
 
+## Build the current Windows application
+
+Requires Windows 10/11 x64, Visual Studio 2022 with the C++ desktop workload, and CMake 3.24 or newer. In Developer PowerShell:
+
+```powershell
+cmake -S . -B build -A x64
+cmake --build build --config Release --parallel
+.\\build\\Release\\XESS5.exe
+```
+
+The initial shell uses Win32 and Windows Imaging Component. It does not bundle a separate image viewer or GUI framework. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the boundaries and acceptance gates.
+
 ## Development direction
 
 The main build is organized around these components:
@@ -39,7 +51,7 @@ The main build is organized around these components:
 
 ## Current status
 
-The repository has just been initialized. Core implementation, model selection, builds, and hardware validation are **not yet complete**. A feature is only marked supported after its code and a reproducible test exist.
+The repository now contains a first native Windows frame-inspection application: it opens a local image, shows the original, builds a conventional detail-filter reference on a worker thread, and compares both images side by side. This is a functional image-handling baseline, **not neural rendering**, and it does not capture games or use a GPU model yet. The Windows CI build has been configured; compilation and runtime behavior still need to be confirmed by a successful run.
 
 ## Links
 
