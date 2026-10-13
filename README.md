@@ -16,9 +16,10 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Graphics-frame contract:** `FramePacket` carries source color plus only those depth, motion-vector, noise, and conditioning buffers actually supplied by the source, along with color/depth/motion conventions.
 - **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
-- **Specialized HNet-style frame contract:** `xess5/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible model. The graph and trained weights are not bundled, so this does not by itself establish functional equivalence or vendor model compatibility.
+- **Specialized HNet-style frame contract:** `xess5/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
+- **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
-- **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, and temporal history without pretending to test real GPU performance.
+- **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, XMX-frame orchestration, and temporal history. CI also compiles the native Vulkan C runtime, but does not execute it on an Arc GPU.
 
 The frame and tensor layers are infrastructure for a neural renderer. They are not themselves a trained rendering model, a game capture hook, or proof of support on a physical Arc B580.
 
@@ -92,6 +93,25 @@ xess5 hnet-frame --model "models\your-hnet-model.onnx" --color "frames\input.png
 
 The command refuses incompatible input/output shapes rather than pretending any rank-four network is the expected graph. A supplied model must also have matching weights, input preprocessing, head output semantics, and legal terms. The report's timing separates model inference from the whole offline frame path; neither is in-game FPS. Previous history is optional for the first frame and, when provided, must be an RGB HWC `.npy` array in the 0..1 range.
 
+### Run the experimental native Intel Arc XMX frame path
+
+This path uses the vendored Vulkan/XMX graph directly, not OpenVINO. It requires the Vulkan SDK/loader, a GCC or Clang toolchain that supports `_Float16` (MSVC is not supported by the vendored native CMake project), the generated SPIR-V shaders, and a compatible legal `fully_logical=true` safetensors file. XESS5 does not include trained weights, proprietary DLLs, or extracted vendor parameters.
+
+From a shell where CMake can find the Vulkan SDK and the GCC/Clang toolchain, build the native source out of tree:
+
+```powershell
+cmake -S vendor/dlss-nr-intel -B vendor/dlss-nr-intel/work/cmake -DNR_BUILD_LAYER=OFF -DNR_BUILD_TESTS=OFF
+cmake --build vendor/dlss-nr-intel/work/cmake --config Release --parallel
+```
+
+Then run an offline frame:
+
+```powershell
+xess5 xmx-frame --weights "models\your-logical-weights.safetensors" --color "frames\input.png" --output "work\rendered.png" --warmup 1 --iterations 5 --report "logs\xmx-frame.json"
+```
+
+When a machine has multiple Vulkan adapters, use `--vulkan-device "B580"` only if that substring uniquely identifies the target card. The command verifies the reported Vulkan device name contains `Arc`. Its FPS-equivalent number reflects only the warmed native frame-runner timing, not complete game FPS. This path has not yet been validated on a physical Arc B580 and does not capture live game frames or prove DLSS 5 compatibility.
+
 ### Run the tests
 
 ```powershell
@@ -108,7 +128,7 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
 5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
 6. **Physical hardware validation.** No XESS5 run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
-7. **Native XMX integration.** A pinned Intel Xe2 Vulkan/XMX research backend is now included under `vendor/dlss-nr-intel/`, with fail-closed adapter selection. It remains a source dependency, not an active XESS5 rendering command: its native build, frame runner, model-weight loading, and Python orchestration still need to be connected and tested together.
+7. **End-to-end native validation.** The `xmx-frame` command now connects XESS5's frame contract to the pinned Vulkan/XMX runner, but CI only compiles the native C runtime and tests the bridge with a fake frame runner. The full shader build, a compatible licensed logical-weight file, and an actual Arc B580 render are still required to validate the path.
 
 A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The immediate engineering path is to finish the native XMX execution bridge and model-loader contract, validate it with a legally usable model artifact, then measure real-frame latency and visual quality on the physical B580.
 
