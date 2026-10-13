@@ -30,4 +30,4 @@ jobs:
         run: python -m compileall -q xess5 tests
 
       - name: Test model shape, composition, gradients, and dataset contracts
-        run: python -m pytest tests/test_training.py tests/test_training_manifest.py
+        run: python -m pytest tests/test_training.py tests/test_training_manifest.py tests/test_training_infer.py
