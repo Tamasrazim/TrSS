@@ -83,8 +83,14 @@ def _run_devices() -> int:
 def _run_inference(args: argparse.Namespace) -> int:
     if not args.input.is_file():
         raise FileNotFoundError(f"Input image does not exist: {args.input}")
-    if args.output.resolve() == args.input.resolve():
-        raise ValueError("Output path must differ from input path; the source image is never overwritten.")
+    output_path = args.output.resolve()
+    input_path = args.input.resolve()
+    model_path = args.model.expanduser().resolve()
+    if output_path in (input_path, model_path):
+        raise ValueError(
+            "Output path must differ from both the source image and model file; "
+            "XESS5 will not overwrite either input."
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(args.input) as opened:
