@@ -208,12 +208,11 @@ def _run_inference(args: argparse.Namespace) -> int:
     last_result = engine.infer(original)
     first_call_wall_ms = (perf_counter() - cold_start) * 1000.0
 
-    # The first call includes compilation on many devices. Treat it as the first
-    # warm-up by default, but preserve its timing in the report for transparency.
-    warmup_performed = 1
-    for _ in range(max(0, args.warmup - 1)):
+    # Keep the first/compilation call separate from the requested warm-up count.
+    # This makes --warmup 0 mean zero additional discarded calls, not one.
+    for _ in range(args.warmup):
         engine.infer(original)
-        warmup_performed += 1
+    warmup_performed = args.warmup
 
     measured_inference_ms: list[float] = []
     measured_wall_ms: list[float] = []
@@ -250,6 +249,7 @@ def _run_inference(args: argparse.Namespace) -> int:
         "first_call_wall_ms": round(first_call_wall_ms, 3),
         "warmup_requested": args.warmup,
         "warmup_performed": warmup_performed,
+        "priming_call_excluded_from_samples": True,
         "iterations": args.iterations,
         "inference_ms": {
             "min": round(min(measured_inference_ms), 3),
@@ -356,6 +356,7 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
     last = engine.infer(tensor_arrays)
     prime_call_ms = (perf_counter() - prime_started) * 1000.0
 
+    priming_compile_ms = last.compile_ms
     for _ in range(args.warmup):
         last = engine.infer(tensor_arrays)
 
@@ -393,6 +394,7 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
         "device_name": last.device_name,
         "model_load_ms": round(model_load_ms, 3),
         "prime_call_ms": round(prime_call_ms, 3),
+        "prime_compile_ms": round(priming_compile_ms, 3),
         "warmup_calls": args.warmup,
         "iterations": args.iterations,
         "inputs": {
