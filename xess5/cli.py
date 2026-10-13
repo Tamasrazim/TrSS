@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 
 from . import __version__
 from .backends.openvino_backend import BackendUnavailable
+from .backends.xmx_engine import XMXBackendUnavailable, XMXFrameEngine
 from .contracts import parse_value_range
 from .engine import ImageInferenceEngine, inspect_model, available_devices
 from .tensor_engine import TensorInferenceEngine
@@ -151,6 +152,31 @@ def _build_parser() -> argparse.ArgumentParser:
     hnet_frame.add_argument("--warmup", type=int, default=1, help="extra warm-up calls after the priming call")
     hnet_frame.add_argument("--iterations", type=int, default=5, help="measured full-frame calls (default: 5)")
     hnet_frame.add_argument("--report", type=Path, help="optional JSON timing and model-contract report")
+
+    xmx_frame = commands.add_parser(
+        "xmx-frame",
+        help="run the experimental native Intel Arc XMX frame graph with local logical weights",
+    )
+    xmx_frame.add_argument(
+        "--weights", required=True, type=Path,
+        help="compatible fully-logical safetensors weights; no weights are bundled",
+    )
+    xmx_frame.add_argument("--color", required=True, type=Path, help="source RGB frame image")
+    xmx_frame.add_argument("--output", required=True, type=Path, help="final RGB image path")
+    xmx_frame.add_argument("--history", type=Path, help="optional previous RGB HWC float32 .npy in 0..1")
+    xmx_frame.add_argument("--history-output", type=Path, help="optional next RGB HWC float32 .npy in 0..1")
+    xmx_frame.add_argument("--head-output", type=Path, help="optional raw four-channel neural head .npy")
+    xmx_frame.add_argument(
+        "--vulkan-device",
+        help="optional Vulkan device-name substring; it must uniquely identify one Intel Arc adapter",
+    )
+    xmx_frame.add_argument("--frame-index", type=int, default=0, help="deterministic noise frame index")
+    xmx_frame.add_argument("--style-index", type=int, default=0, help="documented style index from 0 through 127")
+    xmx_frame.add_argument("--tone-strength", type=float, default=1.0)
+    xmx_frame.add_argument("--structure-strength", type=float, default=1.0)
+    xmx_frame.add_argument("--warmup", type=int, default=1, help="extra warm-up calls after the priming call")
+    xmx_frame.add_argument("--iterations", type=int, default=5, help="measured full-frame calls (default: 5)")
+    xmx_frame.add_argument("--report", type=Path, help="optional JSON timing and native-device report")
     return parser
 
 
@@ -972,6 +998,174 @@ def _run_hnet_frame(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_xmx_frame(args: argparse.Namespace) -> int:
+    """Run the vendored Vulkan/XMX graph against a user-supplied logical model."""
+    if args.warmup < 0:
+        raise ValueError("--warmup cannot be negative.")
+    if args.iterations < 1:
+        raise ValueError("--iterations must be at least 1.")
+    if args.frame_index < 0:
+        raise ValueError("--frame-index cannot be negative.")
+    if not 0 <= args.style_index <= 127:
+        raise ValueError("--style-index must be between 0 and 127.")
+    if not np.isfinite(args.tone_strength) or not np.isfinite(args.structure_strength):
+        raise ValueError("Tone and structure strengths must be finite.")
+    if not args.weights.is_file():
+        raise FileNotFoundError(f"Logical model weights do not exist: {args.weights}")
+    if not args.color.is_file():
+        raise FileNotFoundError(f"Source image does not exist: {args.color}")
+    if args.history is not None and not args.history.is_file():
+        raise FileNotFoundError(f"History tensor does not exist: {args.history}")
+
+    _safe_hnet_paths(
+        args.weights,
+        args.color,
+        args.output,
+        args.history,
+        args.history_output,
+        args.head_output,
+        args.report,
+    )
+
+    try:
+        with Image.open(args.color) as opened:
+            color = np.asarray(opened.convert("RGB"), dtype=np.float32) / np.float32(255.0)
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"Could not decode source frame {args.color}: {exc}") from exc
+
+    previous = _load_hwc_history(args.history) if args.history is not None else None
+    if previous is not None and previous.shape != color.shape:
+        raise ValueError(
+            f"History shape {previous.shape!r} must match the current frame {color.shape!r}."
+        )
+
+    controls = HNetControls(
+        style_index=args.style_index,
+        tone_strength=args.tone_strength,
+        structure_strength=args.structure_strength,
+    )
+
+    initialization_started = perf_counter()
+    engine = XMXFrameEngine(args.weights, device_substring=args.vulkan_device)
+    engine_initialization_ms = (perf_counter() - initialization_started) * 1000.0
+    try:
+        # The first call prepares scratch storage, lazily creates native pipelines,
+        # records the graph, and warms the device. Do not mix that cost into steady-state
+        # frame latency measurements.
+        priming_started = perf_counter()
+        last_result = engine.process_frame(
+            color,
+            history=previous,
+            frame_index=args.frame_index,
+            controls=controls,
+        )
+        priming_wall_ms = (perf_counter() - priming_started) * 1000.0
+
+        for _ in range(args.warmup):
+            last_result = engine.process_frame(
+                color,
+                history=previous,
+                frame_index=args.frame_index,
+                controls=controls,
+            )
+
+        measured_results = []
+        full_pipeline_ms = []
+        for _ in range(args.iterations):
+            started = perf_counter()
+            last_result = engine.process_frame(
+                color,
+                history=previous,
+                frame_index=args.frame_index,
+                controls=controls,
+            )
+            full_pipeline_ms.append((perf_counter() - started) * 1000.0)
+            measured_results.append(last_result)
+
+        output_path = args.output.expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        rgb = np.rint(np.clip(last_result.image, 0.0, 1.0) * 255.0).astype(np.uint8)
+        Image.fromarray(np.ascontiguousarray(rgb)).save(output_path)
+
+        history_path = args.history_output.expanduser().resolve() if args.history_output else None
+        head_path = args.head_output.expanduser().resolve() if args.head_output else None
+        if history_path is not None:
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(history_path, last_result.history.astype(np.float32), allow_pickle=False)
+        if head_path is not None:
+            head_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(head_path, last_result.head.astype(np.float32), allow_pickle=False)
+
+        runner_times = [item.frame_runner_ms for item in measured_results]
+        preprocess_times = [item.preprocess_ms for item in measured_results]
+        composition_times = [item.composition_ms for item in measured_results]
+        report: dict[str, object] = {
+            "engine": "XESS5",
+            "engine_version": __version__,
+            "operation": "native_xmx_frame_inference",
+            "logical_weights": str(args.weights.expanduser().resolve()),
+            "weights_metadata": engine.metadata,
+            "device_requested": args.vulkan_device or "unique Vulkan adapter containing 'Arc'",
+            "device_selected": last_result.device_name,
+            "input_frame": str(args.color.expanduser().resolve()),
+            "input_size": list(color.shape[1::-1]),
+            "network_size": list(last_result.network_size),
+            "feature_contract": {
+                "input_layout": "HWC",
+                "input_channels": 16,
+                "output_channels": 4,
+                "frame_index": args.frame_index,
+                "style_index": args.style_index,
+                "tone_strength": args.tone_strength,
+                "structure_strength": args.structure_strength,
+                "history_supplied": previous is not None,
+                "motion_reprojection": "not performed; no scene motion field was supplied",
+            },
+            "engine_initialization_ms": round(engine_initialization_ms, 3),
+            "priming_wall_ms": round(priming_wall_ms, 3),
+            "warmup_calls_after_priming": args.warmup,
+            "iterations": args.iterations,
+            "native_frame_execution_ms": {
+                "median": round(float(np.median(runner_times)), 3),
+                "p95": round(_percentile(runner_times, 95), 3),
+            },
+            "preprocessing_ms": {
+                "median": round(float(np.median(preprocess_times)), 3),
+                "p95": round(_percentile(preprocess_times, 95), 3),
+            },
+            "composition_ms": {
+                "median": round(float(np.median(composition_times)), 3),
+                "p95": round(_percentile(composition_times, 95), 3),
+            },
+            "complete_local_frame_ms": {
+                "median": round(float(np.median(full_pipeline_ms)), 3),
+                "p95": round(_percentile(full_pipeline_ms, 95), 3),
+            },
+            "native_frame_fps_equivalent": (
+                round(1000.0 / float(np.median(runner_times)), 2)
+                if float(np.median(runner_times)) > 0 else None
+            ),
+            "allocated_native_buffer_bytes": last_result.allocated_buffer_bytes,
+            "outputs": {
+                "image": str(output_path),
+                "history": str(history_path) if history_path is not None else None,
+                "raw_head": str(head_path) if head_path is not None else None,
+            },
+            "note": (
+                "Experimental offline native XMX frame path. It requires a matching "
+                "fully-logical model file and a compatible Intel Arc driver. It does not "
+                "capture a live game, perform motion-vector reprojection, or establish "
+                "DLSS 5 compatibility or in-game performance."
+            ),
+        }
+        print(json.dumps(report, indent=2))
+        if args.report:
+            _write_json(args.report, report)
+    finally:
+        engine.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -988,6 +1182,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_render_frame(args)
         if args.command == "hnet-frame":
             return _run_hnet_frame(args)
+        if args.command == "xmx-frame":
+            return _run_xmx_frame(args)
         parser.error("unknown command")
     except (BackendUnavailable, AdapterSpecError, HNetContractError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"XESS5 error: {exc}", file=sys.stderr)
