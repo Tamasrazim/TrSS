@@ -19,6 +19,17 @@ Each input binding requires:
 - optional resize: nearest or bilinear for spatial sources (defaults to bilinear);
 - optional channel_order: RGB or BGR for image-like sources (defaults to RGB).
 
+An optional root-level preview_output section may declare one direct RGB/RGBA output tensor, for example:
+
+    "preview_output": {
+      "port": "rgb_output",
+      "layout": "NCHW",
+      "source_range": [0, 1],
+      "channel_order": "RGB"
+    }
+
+The port name must exactly match a model output. The output must be rank four with batch size 1 and three or four color channels. Feature planes and packed neural heads are rejected; they need a model-specific composition function. If the model has a direct image output, this declaration lets XESS5 save a preview while still preserving every raw output tensor.
+
 The engine uses the model's static width and height when available. Dynamic spatial dimensions use the supplied buffer size. The adapter refuses channel-count or static-shape mismatches rather than inventing channels.
 
 The range conversion is an affine remapping:
@@ -44,7 +55,7 @@ The current render-frame command is an offline validation path, not a game hook.
       --iterations 10 ^
       --report "logs\frame-0001.json"
 
-Every argument is local. Omit a buffer option only when the model's spec does not require that source. If the model requires depth, motion, noise, history, or conditioning and it is not supplied, XESS5 stops with an error instead of making one up.
+Every argument is local. Preview/history export is optional and requires a direct RGB preview_output declaration in the spec. The preview is normalized to RGB and resized to the source frame dimensions. The history file is H×W×3 float32 in [0, 1]; configure the next frame's history binding source_range as [0, 1] unless a model-specific transform says otherwise. Omit a buffer option only when the model's spec does not require that source. If the model requires depth, motion, noise, history, or conditioning and it is not supplied, XESS5 stops with an error instead of making one up.
 
 Array inputs are numeric NumPy .npy files loaded with object deserialization disabled. Typical source shapes are:
 
@@ -59,7 +70,7 @@ Array inputs are numeric NumPy .npy files loaded with object deserialization dis
 
 ## Output rules
 
-The first adapter writes every model output as a separate .npy tensor and reports its shape and datatype. It intentionally does not assume an output named rgb is display-ready RGB. Some networks output residuals, feature planes, exposure/gain values, alpha, or a packed neural head; a model-specific composition routine must turn those values into the final frame.
+The adapter writes every model output as a separate .npy tensor and reports its shape and datatype. It intentionally does not assume an output named rgb is display-ready RGB. Some networks output residuals, feature planes, exposure/gain values, alpha, or a packed neural head; a model-specific composition routine must turn those values into the final frame. An optional direct-RGB preview only works when the spec explicitly identifies a rank-four RGB/RGBA output; it is not a generic decoder for neural heads.
 
 The command reports preprocessing, inference, end-to-end timing, compile timing, the chosen OpenVINO device, frame metadata, input tensors, and output shapes. These are offline per-frame measurements; they are not in-game FPS.
 
