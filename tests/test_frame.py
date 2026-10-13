@@ -126,3 +126,13 @@ def test_temporal_history_camera_cut_frame_can_become_new_history():
     following = history.history_for(make_frame(4, 0.04))
     assert following is not None
     assert np.all(following == 1.0)
+
+
+
+def test_frame_packet_rejects_complex_color_values():
+    with pytest.raises(FrameValidationError, match="real-valued numeric"):
+        FramePacket(
+            color=np.ones((2, 2, 3), dtype=np.complex64),
+            timestamp=0.0,
+            frame_id=0,
+        )
