@@ -11,7 +11,7 @@ from PIL import Image
 
 import xess5.engine as engine_module
 from xess5.backends.openvino_backend import BackendUnavailable, resolve_device
-from xess5.engine import ImageInferenceEngine, ModelContractError, inspect_model
+from xess5.engine import ImageInferenceEngine, ModelContractError, inspect_model, _numpy_dtype
 
 
 class FakeDimension:
@@ -144,6 +144,12 @@ def install_fake_openvino(monkeypatch, tmp_path: Path, core: FakeCore) -> Path:
     model_file.write_text("<test-model />", encoding="utf-8")
     monkeypatch.setattr(engine_module, "load_openvino", lambda: FakeOpenVINO(core))
     return model_file
+
+
+@pytest.mark.parametrize("precision", ["bf16", "bfloat16", "Type.bf16"])
+def test_image_engine_rejects_bfloat16_instead_of_treating_it_as_fp16(precision):
+    with pytest.raises(ModelContractError, match="bfloat16"):
+        _numpy_dtype(precision)
 
 
 def test_arc_alias_selects_arc_not_integrated_gpu():
