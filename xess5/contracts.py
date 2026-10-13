@@ -76,6 +76,10 @@ def tensor_to_image(
     """Convert a batch-one model output into an RGB image."""
     output = np.asarray(tensor)
 
+    if np.issubdtype(output.dtype, np.complexfloating):
+        raise ValueError("Complex-valued model outputs require an explicit conversion.")
+    if not np.issubdtype(output.dtype, np.number):
+        raise ValueError("Model output must contain numeric values.")
     if output.ndim != 4 or output.shape[0] != 1:
         raise ValueError(
             f"Expected one rank-four output tensor, got shape {output.shape!r}."
