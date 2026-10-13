@@ -94,3 +94,12 @@ def test_tensor_to_image_rejects_invalid_value_ranges():
             layout="NCHW",
             value_range=(0.5, 0.5),
         )
+
+
+
+def test_tensor_to_image_rejects_complex_model_outputs():
+    with pytest.raises(ValueError, match="Complex-valued"):
+        tensor_to_image(
+            np.ones((1, 3, 2, 2), dtype=np.complex64),
+            layout="NCHW",
+        )
