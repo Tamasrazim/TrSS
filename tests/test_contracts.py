@@ -56,3 +56,41 @@ def test_tensor_to_image_replaces_invalid_numbers_and_clamps_range():
 def test_tensor_to_image_rejects_non_batch_one_output():
     with pytest.raises(ValueError, match="rank-four"):
         tensor_to_image(np.zeros((3, 5, 5), dtype=np.float32), layout="NCHW")
+
+
+
+def test_image_to_tensor_supports_bgr_models():
+    image = Image.new("RGB", (1, 1), (10, 20, 30))
+    tensor = image_to_tensor(
+        image, layout="NCHW", width=1, height=1, channel_order="BGR"
+    )
+    assert tensor[0, :, 0, 0].tolist() == pytest.approx(
+        [30 / 255, 20 / 255, 10 / 255]
+    )
+
+
+def test_tensor_to_image_supports_bgr_model_outputs():
+    source = np.asarray([[[[30 / 255]], [[20 / 255]], [[10 / 255]]]], dtype=np.float32)
+    image = tensor_to_image(source, layout="NCHW", channel_order="BGR")
+    assert image.getpixel((0, 0)) == (10, 20, 30)
+
+
+@pytest.mark.parametrize("value_range", [(1.0, 1.0), (2.0, 1.0), (float("nan"), 1.0)])
+def test_image_to_tensor_rejects_invalid_value_ranges(value_range):
+    with pytest.raises(ValueError, match="value range"):
+        image_to_tensor(
+            Image.new("RGB", (1, 1)),
+            layout="NCHW",
+            width=1,
+            height=1,
+            value_range=value_range,
+        )
+
+
+def test_tensor_to_image_rejects_invalid_value_ranges():
+    with pytest.raises(ValueError, match="value range"):
+        tensor_to_image(
+            np.zeros((1, 3, 1, 1), dtype=np.float32),
+            layout="NCHW",
+            value_range=(0.5, 0.5),
+        )
