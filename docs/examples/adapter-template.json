@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "TEMPLATE ONLY. Replace every port name, source, layout, range, and resize rule with the selected model's documented contract.",
+  "inputs": {
+    "color_input": {
+      "source": "color",
+      "layout": "NCHW",
+      "source_range": [0, 255],
+      "target_range": [0, 1],
+      "resize": "bilinear",
+      "channel_order": "RGB"
+    },
+    "depth_input": {
+      "source": "depth",
+      "layout": "NCHW",
+      "source_range": [0, 1],
+      "target_range": [0, 1],
+      "resize": "nearest"
+    },
+    "motion_input": {
+      "source": "motion_vectors",
+      "layout": "NCHW",
+      "source_range": [-1, 1],
+      "target_range": [-1, 1],
+      "resize": "bilinear"
+    },
+    "history_input": {
+      "source": "history",
+      "layout": "NCHW",
+      "source_range": [0, 255],
+      "target_range": [0, 1],
+      "resize": "bilinear",
+      "channel_order": "RGB"
+    },
+    "conditioning_input": {
+      "source": "conditioning",
+      "layout": "NC",
+      "source_range": [0, 1],
+      "target_range": [-1, 1]
+    }
+  }
+}
