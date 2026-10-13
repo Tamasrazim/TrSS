@@ -38,5 +38,11 @@
       "source_range": [0, 1],
       "target_range": [-1, 1]
     }
+  },
+  "preview_output": {
+    "port": "rgb_output",
+    "layout": "NCHW",
+    "source_range": [0, 1],
+    "channel_order": "RGB"
   }
 }
