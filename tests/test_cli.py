@@ -304,15 +304,17 @@ def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
     model = tmp_path / "render.onnx"
     spec = tmp_path / "adapter.json"
     color_path = tmp_path / "frame.png"
+    depth_path = tmp_path / "depth.npy"
     model.write_bytes(b"mock model")
     Image.new("RGB", (1, 1), (20, 30, 40)).save(color_path)
+    np.save(depth_path, np.ones((1, 1), dtype=np.float32), allow_pickle=False)
     spec.write_text(json.dumps({
         "version": 1,
         "inputs": {
-            "color": {
-                "source": "color",
+            "depth": {
+                "source": "depth",
                 "layout": "NCHW",
-                "source_range": [0, 255],
+                "source_range": [0, 1],
                 "target_range": [0, 1],
             },
         },
@@ -321,13 +323,13 @@ def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
     class FakeTensorEngine:
         def __init__(self, model_path, *, device):
             self.model_path = str(Path(model_path).resolve())
-            self.input_shapes = {"color": (1, 3, 1, 1)}
+            self.input_shapes = {"depth": (1, 1, 1, 1)}
 
         def infer(self, inputs):
             return SimpleNamespace(
-                outputs={"frame": np.zeros((1, 3, 1, 1), dtype=np.float32)},
-                input_shapes={"color": (1, 3, 1, 1)},
-                output_shapes={"frame": (1, 3, 1, 1)},
+                outputs={"depth": np.zeros((1, 1, 1, 1), dtype=np.float32)},
+                input_shapes={"depth": (1, 1, 1, 1)},
+                output_shapes={"depth": (1, 1, 1, 1)},
                 compile_ms=0.0,
                 inference_ms=1.0,
                 total_ms=1.0,
@@ -342,9 +344,12 @@ def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
         "--model", str(model),
         "--spec", str(spec),
         "--color", str(color_path),
+        "--depth", str(depth_path),
         "--output-dir", str(tmp_path),
         "--warmup", "0",
         "--iterations", "1",
     ])
+    # The model port is named "depth", so the generated depth.npy output would
+    # otherwise replace the exact .npy file that supplied the source depth data.
     with pytest.raises(ValueError, match="would overwrite"):
         cli._run_render_frame(args)
