@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .backends.openvino_backend import BackendUnavailable, load_openvino
+from .backends.openvino_backend import BackendUnavailable, load_openvino, resolve_device
 from .contracts import Layout, image_to_tensor, tensor_to_image
 
 
@@ -63,6 +63,60 @@ def available_devices() -> list[dict[str, str]]:
     return list_devices()
 
 
+def inspect_model(model_path: str | Path) -> dict[str, object]:
+    """Read a local model and describe its ports without compiling or running it."""
+    resolved_path = Path(model_path).expanduser().resolve()
+    if not resolved_path.is_file():
+        raise FileNotFoundError(f"Model file does not exist: {resolved_path}")
+
+    ov = load_openvino()
+    try:
+        core = ov.Core()
+        model = core.read_model(str(resolved_path))
+    except Exception as exc:
+        raise ModelContractError(
+            f"OpenVINO could not inspect model {resolved_path}: {exc}"
+        ) from exc
+
+    def describe_port(port: Any, index: int) -> dict[str, object]:
+        shape = []
+        for dimension in port.partial_shape:
+            length = _dimension_length(dimension)
+            shape.append(length)
+        try:
+            name = port.get_any_name()
+        except Exception:
+            name = f"input_{index}"
+        return {
+            "index": index,
+            "name": str(name),
+            "shape": shape,
+            "shape_text": str(port.partial_shape),
+            "precision": str(port.element_type),
+        }
+
+    inputs = [describe_port(port, i) for i, port in enumerate(model.inputs)]
+    outputs = [describe_port(port, i) for i, port in enumerate(model.outputs)]
+    return {
+        "model": str(resolved_path),
+        "input_count": len(inputs),
+        "output_count": len(outputs),
+        "inputs": inputs,
+        "outputs": outputs,
+        "supported_by_current_image_engine": (
+            len(inputs) == 1
+            and len(outputs) == 1
+            and len(inputs[0]["shape"]) == 4
+            and len(outputs[0]["shape"]) == 4
+        ),
+        "note": (
+            "The current generic image engine requires one rank-four RGB input and "
+            "one rank-four image output. Multi-input models for depth, motion vectors, "
+            "noise, or temporal history need a specialized adapter."
+        ),
+    }
+
+
 class ImageInferenceEngine:
     """Run one-input, one-output RGB image models on an OpenVINO device."""
 
@@ -70,7 +124,7 @@ class ImageInferenceEngine:
         self,
         model_path: str | Path,
         *,
-        device: str = "GPU",
+        device: str = "ARC",
         layout: Layout = "NCHW",
         input_range: tuple[float, float] = (0.0, 1.0),
         output_range: tuple[float, float] = (0.0, 1.0),
@@ -105,26 +159,7 @@ class ImageInferenceEngine:
         except Exception as exc:
             raise BackendUnavailable(f"OpenVINO could not initialize: {exc}") from exc
 
-        exposed_devices = [str(item) for item in self.core.available_devices]
-        selected_device = device
-        if selected_device not in exposed_devices and selected_device.upper() == "GPU":
-            # Some systems expose multiple adapters as GPU.0, GPU.1, etc.
-            # Use the first GPU only for the generic GPU alias; explicit IDs remain selectable.
-            numbered_gpus = [
-                item for item in exposed_devices
-                if item.upper().startswith("GPU.")
-            ]
-            if numbered_gpus:
-                selected_device = numbered_gpus[0]
-
-        if selected_device not in exposed_devices:
-            available = ", ".join(exposed_devices) if exposed_devices else "none"
-            raise BackendUnavailable(
-                f"Requested device {device!r} is not available. OpenVINO reports: {available}. "
-                "For Intel Arc, install a compatible Intel graphics driver and the optional "
-                'XESS5 GPU dependencies with: python -m pip install -e ".[gpu]"'
-            )
-        self.device = selected_device
+        self.device = resolve_device(self.core, device)
 
         try:
             model = self.core.read_model(str(self.model_path))
@@ -178,7 +213,7 @@ class ImageInferenceEngine:
         # The actual dimensions are known when infer() is called. Leave truly
         # dynamic spatial dimensions dynamic until then; the model is reshaped
         # to the actual image in _prepare_model().
-        self._device_name = self._read_device_name(device)
+        self._device_name = self._read_device_name(self.device)
         self._compiled = None
         self._prepared_shape: tuple[int, ...] | None = None
 
