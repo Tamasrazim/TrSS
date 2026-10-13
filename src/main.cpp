@@ -92,14 +92,16 @@ void LayoutControls(HWND window, AppState& state) {
 
     int x = padding;
     const int y = 14;
-    const int usableWidth = std::max(0, client.right - padding * 2);
+    const int clientWidth = static_cast<int>(client.right);
+    const int clientHeight = static_cast<int>(client.bottom);
+    const int usableWidth = std::max(0, clientWidth - padding * 2);
 
     auto place = [&](HWND control, int preferredWidth) {
         if (control == nullptr) {
             return;
         }
         const int width = std::min(preferredWidth,
-            std::max(0, client.right - x - padding));
+            std::max(0, clientWidth - x - padding));
         MoveWindow(control, x, y, width, buttonHeight, TRUE);
         x += width + gap;
     };
@@ -115,7 +117,7 @@ void LayoutControls(HWND window, AppState& state) {
         MoveWindow(
             state.statusLabel,
             padding,
-            std::max(0, client.bottom - statusHeight),
+            std::max(0, clientHeight - statusHeight),
             usableWidth,
             statusHeight,
             TRUE
@@ -302,8 +304,8 @@ void PaintCanvas(HWND window, HDC deviceContext, AppState& state) {
     RECT canvas{
         0,
         toolbarBottom,
-        client.right,
-        std::max(toolbarBottom, client.bottom - statusHeight)
+        static_cast<int>(client.right),
+        std::max(toolbarBottom, static_cast<int>(client.bottom) - statusHeight)
     };
 
     HBRUSH canvasBrush = CreateSolidBrush(RGB(14, 14, 14));
