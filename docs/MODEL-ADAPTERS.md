@@ -17,7 +17,7 @@ Each input binding requires:
 - source_range: the value range in the frame data before normalization;
 - target_range: the numerical range expected by the model;
 - optional resize: nearest or bilinear for spatial sources (defaults to bilinear);
-- optional channel_order: RGB or BGR for image-like sources (defaults to RGB).
+- optional channel_order: RGB or BGR for image-like sources (defaults to RGB). For a four-channel RGBA source, BGR reorders only the first three color channels and preserves alpha, producing BGRA.
 
 An optional root-level preview_output section may declare one direct RGB/RGBA output tensor, for example:
 
