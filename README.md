@@ -1,32 +1,27 @@
 # XESS5
 
-**A Python-first neural inference engine targeting Intel Arc GPUs.**
+**A Python-first neural graphics engine for Intel Arc.**
 
-XESS5 is the engine project: model loading, tensor preparation, GPU inference, timing, diagnostics, and eventually real-time frame processing. The first hardware target is the Intel Arc B580 12 GB, with support intended to extend to compatible Intel Arc GPUs.
+XESS5 is being developed around actual model inference, graphics-frame contracts, temporal state, and GPU diagnostics, with the Intel Arc B580 12 GB as the first hardware target. The aim is a local neural-rendering engine that we own and can integrate with a documented graphics path—not a wrapper around someone else's app.
 
-This is an independent research project, not an Intel or NVIDIA product. It does not claim to be NVIDIA DLSS 5, and it must not label a filter or conventional upscaler as neural rendering.
+This is independent research software, not an Intel or NVIDIA product. It does not claim to be NVIDIA DLSS 5, and the engine must not label a conventional filter or generic super-resolution model as neural rendering.
 
-## The actual objective
+## What is implemented
 
-Build the neural-processing engine first, then connect it to real graphics frames. Do not spend the project on a mock UI or an image-viewer prototype.
+- **OpenVINO device discovery:** lists the GPU devices actually exposed by the installed runtime, including distinct `GPU.X` adapters.
+- **Strict Arc selection:** `ARC` resolves only when one device is identified as Intel Arc. Ambiguous Arc devices must be selected explicitly; a CPU fallback is rejected.
+- **Single-image inference:** a convenience path for one rank-four RGB image input and one image output, with NCHW/NHWC layout, RGB/BGR channels, numeric range, FP16/FP32 input, warm-up calls, repeated measurements, and JSON reports.
+- **Model inspection:** reads a local ONNX/OpenVINO-supported model and describes its input/output names, shapes, and precision without running inference.
+- **Multi-input/multi-output inference:** named tensors are checked against the model's actual ports. Dynamic shapes are specialized and compiled for the selected GPU; outputs and timing details are returned explicitly.
+- **Graphics-frame contract:** `FramePacket` carries source color plus only those depth, motion-vector, noise, and conditioning buffers actually supplied by the source, along with color/depth/motion conventions.
+- **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
+- **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, and temporal history without pretending to test real GPU performance.
 
-The code currently provides a Python engine shell with an OpenVINO GPU backend, an explicit single-image model contract, input/output tensor conversion, device discovery, timing, and JSON reports. This is the first inference milestone; it is not yet a game renderer.
+The frame and tensor layers are infrastructure for a neural renderer. They are not themselves a trained rendering model, a game capture hook, or proof of support on a physical Arc B580.
 
-## Current engine
+## Setup
 
-- **Python-first orchestration:** model contracts, input preparation, model invocation, error handling, measurements, and tests.
-- **Intel GPU inference:** OpenVINO's local GPU plugin, with runtime device checks rather than an assumption that a GPU is present.
-- **Local processing:** input files, models, and output images are read or written on the user's machine. No account or cloud inference is required.
-- **Explicit model contract:** the first adapter accepts one rank-four RGB image input and one rank-four image output, in NCHW or NHWC layout. It supports FP16/FP32 input tensors and lets the operator set input/output value ranges.
-- **No bundled weights:** the engine never pretends that model code and trained model parameters are the same thing.
-- **Observable execution:** inference time, total call time, input/output dimensions, selected device, and a JSON report.
-- **Main-only development:** work lands directly on main. No feature branches, pull requests, or releases.
-
-OpenVINO documents Intel Arc GPUs as supported GPU-inference devices on Windows 10/11 and compatible Linux platforms. The graphics driver remains a separate system requirement: [OpenVINO system requirements](https://docs.openvino.ai/2026/about-openvino/release-notes-openvino/system-requirements.html).
-
-## Build and run on Windows
-
-Use Python 3.10 or newer. In PowerShell from the repository folder:
+Use Python 3.10 or newer. On Windows PowerShell, from the repository folder:
 
 ```powershell
 py -3 -m venv .venv
@@ -35,46 +30,74 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[gpu,test]"
 ```
 
-List the devices that OpenVINO can see:
+OpenVINO GPU support also depends on a compatible Intel graphics driver and the installed runtime's GPU plugin.
+
+## Commands
+
+### Identify the actual adapter
 
 ```powershell
 xess5 devices
 ```
 
-Run an image-to-image model in OpenVINO-supported format (for example, ONNX or OpenVINO IR XML):
+XESS5 prints the device IDs and names it detects. It refuses to claim Arc selection when it can't distinguish an Arc GPU. On a machine with multiple Intel Arc GPUs, pass an explicit device such as `GPU.1`.
+
+### Inspect a model before executing it
 
 ```powershell
-xess5 infer --model "models\your-model.onnx" --input "input.png" --output "output.png" --device GPU --layout NCHW --input-range 0:1 --output-range 0:1 --report "logs\run.json"
+xess5 inspect --model "models\your-model.onnx"
 ```
 
-This command expects a **compatible image-to-image model**. It is not a generic loader for every neural network: the model must follow the declared tensor contract, and the selected model's license must permit its use. Use the correct layout and numeric ranges for the model; incorrect preprocessing can produce meaningless images.
+The command shows every named input and output, its shape, and its precision. Do this before preparing tensors; XESS5 intentionally does not invent preprocessing semantics for unknown models.
 
-Run CPU-only tests:
+### Run a simple image-to-image model
+
+```powershell
+xess5 infer --model "models\your-model.onnx" --input "input.png" --output "output.png" --device ARC --layout NCHW --input-channel-order RGB --output-channel-order RGB --input-range 0:1 --output-range 0:1 --warmup 3 --iterations 10 --report "logs\run.json"
+```
+
+Use this only for a model that truly expects a single rank-four image tensor and returns a rank-four image tensor. Confirm channel order, layout, dimensions, and ranges from the model's documentation. The reported inference-equivalent FPS is only the reciprocal of the isolated model time; it is not game FPS.
+
+### Execute a model with multiple named tensors
+
+For a model with color, depth, motion, history, or conditioning inputs, save the exact tensors expected by that model as NumPy `.npy` files and pass one `--input NAME=FILE.npy` argument per declared input:
+
+```powershell
+xess5 infer-tensors --model "models\render-model.onnx" --input "color=work\color.npy" --input "depth=work\depth.npy" --input "motion=work\motion.npy" --output-dir "work\outputs" --device ARC --warmup 2 --iterations 10 --report "logs\tensor-run.json"
+```
+
+Names must exactly match the model's input ports, and tensors must match the expected dimensions, precision, units, and preprocessing. The engine refuses missing/extra names, non-finite values, and complex inputs. It does not infer depth or motion vectors from color; those buffers must come from a real, documented source or a deliberate model-specific preprocessing stage.
+
+### Run the tests
 
 ```powershell
 python -m pytest
 ```
 
-No release build is published. The repository's CI checks source compilation and tests only.
+CI checks syntax and the CPU-only test suite. CI does not have the target Arc B580, so it cannot prove GPU inference speed or visual results.
 
-## What is not implemented yet
+## Still missing for actual neural rendering
 
-1. A model-specific adapter for neural rendering that consumes scene conditioning, depth, motion vectors, noise, or temporal history.
-2. A real-time capture/render path from live game frames.
-3. A supported Vulkan layer or other low-overhead game integration.
-4. Arc B580 hardware measurements from this repository's own inference run.
-5. End-to-end latency and visual-quality comparisons against a baseline.
+1. **A model-specific neural-rendering adapter.** The actual graph's tensor meanings, noise generation, conditioning, weights, precision, and output composition must match a compatible and legally usable model.
+2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with XESS5.
+3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
+4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
+5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet.
+6. **Physical hardware validation.** No XESS5 run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
 
-A still-image model invocation is useful engine infrastructure, but it is not evidence of live neural rendering or a guaranteed FPS increase.
+A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The next real milestone is a model-specific adapter using properly licensed model material, then measured execution on the actual B580.
 
 ## Research references
 
-- [DLSS-NR on Intel](https://github.com/Uzbekunknown/dlss-nr-on-intel) — an experimental Intel Xe2 Vulkan-layer research project. Its README describes an Intel-oriented implementation, but its supplied release requires compatible model material from the user.
-- [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — a separate Vulkan reimplementation. Its documented GPU requirements are NVIDIA-specific, so it is not a direct B580 backend.
-- [OpenVINO](https://github.com/openvinotoolkit/openvino) — an open-source inference runtime with an Intel GPU plugin.
+- [DLSS-NR on Intel](https://github.com/Uzbekunknown/dlss-nr-on-intel) — experimental Intel Xe2 neural-rendering research with a Vulkan path. Its current code is a research reference; the published project requires separate compatible model material and should not be copied without retaining its Apache-2.0 license and notices.
+- [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
+- [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
 
-These projects are references, not code or model weights silently copied into XESS5. Before adapting any component, record its exact license, preserve required notices, and validate that its hardware and model requirements fit the B580.
+These are technical references, not opaque third-party applications wrapped by XESS5. Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
-## Development rule
+## Development rules
 
-The next milestone is a reproducible neural model run on the Intel GPU, followed by a model-specific rendering adapter. Only after those work should we develop live frame capture and temporal rendering. Every feature must be tested and measured on the target hardware before it is described as supported.
+- Main branch only; commits land directly on `main`.
+- No releases or extra branches.
+- Local-first: no account, cloud inference, or subscription is required.
+- Model and graphics claims are only added after an executable test supports them.
