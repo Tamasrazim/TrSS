@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = ["openvino>=2025.0"]
+training = ["torch>=2.5"]
 test = ["pytest>=8.0"]
 
 [project.scripts]
