@@ -147,7 +147,7 @@ def test_conditioning_vector_is_mapped_to_nc_without_image_resizing():
     output = adapt_frame(frame, spec, {"condition": (1, 2)})["condition"]
 
     assert output.shape == (1, 2)
-    assert output.tolist() == pytest.approx([[-0.6, 0.6]])
+    assert output[0].tolist() == pytest.approx([-0.6, 0.6])
 
 
 def test_history_binding_requires_real_previous_output():
