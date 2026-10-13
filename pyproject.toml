@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xess5"
+version = "0.1.0"
+description = "A local neural image-inference engine and research foundation for Intel Arc GPUs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+gpu = ["openvino>=2025.0"]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+xess5 = "xess5.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["xess5*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
