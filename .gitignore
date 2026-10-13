@@ -1,34 +1,36 @@
-# CMake and compiler output
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
 build/
-out/
-cmake-build-*/
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-compile_commands.json
-*.obj
-*.o
-*.pdb
-*.ilk
-*.exe
-*.dll
-*.lib
-*.exp
+*.egg-info/
 
-# Local IDE files
-.vs/
+# IDE files
 .vscode/
 .idea/
 
-# Local frame captures and model weights must not accidentally enter Git
-captures/
+# Local models and captures; never accidentally commit model weights
 models/local/
-*.safetensors
+models/downloads/
+captures/
 *.onnx
+*.xml
+*.safetensors
 *.engine
 *.weights
+*.pt
+*.pth
 *.bin
 
-# Local diagnostic output
+# Local reports and logs
 logs/
 *.log
+*.jsonl
