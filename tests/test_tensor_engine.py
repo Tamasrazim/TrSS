@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from xess5.engine import ModelContractError
-from xess5.tensor_engine import TensorInferenceEngine
+from xess5.tensor_engine import TensorInferenceEngine, _port_numpy_dtype
 from test_engine import (
     FakeCore,
     FakeModel,
@@ -15,6 +15,14 @@ from test_engine import (
     install_fake_openvino,
 )
 import xess5.tensor_engine as tensor_engine_module
+
+
+@pytest.mark.parametrize("precision", ["bf16", "bfloat16", "Type.bf16"])
+def test_tensor_engine_rejects_bfloat16_instead_of_treating_it_as_fp16():
+    from types import SimpleNamespace
+
+    with pytest.raises(ModelContractError, match="bfloat16"):
+        _port_numpy_dtype(SimpleNamespace(element_type="bf16"))
 
 
 def install_tensor_openvino(monkeypatch, tmp_path, core):
