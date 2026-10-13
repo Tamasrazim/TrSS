@@ -58,7 +58,7 @@ def test_multi_input_model_binds_named_tensors_and_returns_outputs(monkeypatch, 
         ],
         outputs=[[1, 3, None, None]],
     ))
-    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+    model_file = install_tensor_openvino(monkeypatch, tmp_path, core)
     engine = TensorInferenceEngine(model_file, device="ARC")
 
     assert engine.input_names == ("input_0", "input_1")
@@ -84,7 +84,7 @@ def test_multi_input_engine_reports_missing_and_extra_inputs(monkeypatch, tmp_pa
         [1, 3, None, None],
         [1, 1, None, None],
     ]))
-    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+    model_file = install_tensor_openvino(monkeypatch, tmp_path, core)
     engine = TensorInferenceEngine(model_file, device="GPU.1")
 
     with pytest.raises(ModelContractError, match="missing inputs"):
@@ -103,7 +103,7 @@ def test_multi_input_engine_reuses_compilation_for_same_shapes(monkeypatch, tmp_
         [1, 3, None, None],
         [1, 1, None, None],
     ]))
-    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+    model_file = install_tensor_openvino(monkeypatch, tmp_path, core)
     engine = TensorInferenceEngine(model_file, device="GPU.1")
 
     inputs = {
@@ -123,7 +123,7 @@ def test_multi_input_engine_recompiles_after_resolution_change(monkeypatch, tmp_
         [1, 3, None, None],
         [1, 1, None, None],
     ]))
-    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+    model_file = install_tensor_openvino(monkeypatch, tmp_path, core)
     engine = TensorInferenceEngine(model_file, device="GPU.1")
 
     engine.infer({
