@@ -152,6 +152,8 @@ def test_tensor_inference_writes_separate_numpy_outputs_and_report(monkeypatch, 
         "--input", f"color={color_path}",
         "--input", f"depth={depth_path}",
         "--output-dir", str(output_dir),
+        "--preview-output", str(preview_path),
+        "--history-output", str(history_path),
         "--device", "ARC",
         "--warmup", "1",
         "--iterations", "2",
@@ -215,6 +217,8 @@ def test_render_frame_adapts_color_and_depth_and_reports_timings(monkeypatch, tm
     color_path = tmp_path / "frame.png"
     depth_path = tmp_path / "depth.npy"
     output_dir = tmp_path / "output"
+    preview_path = tmp_path / "rendered.png"
+    history_path = tmp_path / "next-history.npy"
     report_path = tmp_path / "report" / "frame.json"
 
     model.write_bytes(b"mock model for this CLI test")
@@ -236,6 +240,12 @@ def test_render_frame_adapts_color_and_depth_and_reports_timings(monkeypatch, tm
                 "target_range": [0, 1],
                 "resize": "nearest",
             },
+        },
+        "preview_output": {
+            "port": "render/rgb",
+            "layout": "NCHW",
+            "source_range": [0, 1],
+            "channel_order": "RGB",
         },
     }), encoding="utf-8")
 
@@ -289,6 +299,11 @@ def test_render_frame_adapts_color_and_depth_and_reports_timings(monkeypatch, tm
     assert FakeTensorEngine.calls == 4  # prime + 1 warm-up + 2 measurements
     saved = np.load(output_dir / "render_rgb.npy", allow_pickle=False)
     assert np.all(saved == 0.3)
+    assert Image.open(preview_path).getpixel((0, 0)) == (76, 76, 76)
+    history = np.load(history_path, allow_pickle=False)
+    assert history.shape == (2, 2, 3)
+    assert history.dtype == np.float32
+    assert np.all(history == 0.3)
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["device_name"] == "Intel Arc B580 Graphics"
@@ -298,6 +313,8 @@ def test_render_frame_adapts_color_and_depth_and_reports_timings(monkeypatch, tm
     assert report["frame"]["available_sources"] == ["color", "depth"]
     assert report["iterations"] == 2
     assert report["output_tensors"]["render/rgb"]["path"].endswith("render_rgb.npy")
+    assert report["preview_output"]["path"] == str(preview_path.resolve())
+    assert report["history_output"]["range"] == [0, 1]
 
 
 def test_render_frame_does_not_overwrite_an_input_frame(monkeypatch, tmp_path):
