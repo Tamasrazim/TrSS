@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <new>
 #include <string>
 #include <thread>
@@ -93,7 +94,7 @@ void LayoutControls(HWND window, AppState& state) {
     const int y = 14;
     const int usableWidth = std::max(0, client.right - padding * 2);
 
-    const auto place = [&](HWND control, int preferredWidth) mutable {
+    auto place = [&](HWND control, int preferredWidth) {
         if (control == nullptr) {
             return;
         }
@@ -316,7 +317,7 @@ void PaintCanvas(HWND window, HDC deviceContext, AppState& state) {
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
         );
-        HFONT regular = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        HFONT regular = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
         RECT message = canvas;
         message.left += 36;
