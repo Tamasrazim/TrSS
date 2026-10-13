@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -15,6 +16,7 @@ from . import __version__
 from .backends.openvino_backend import BackendUnavailable
 from .contracts import parse_value_range
 from .engine import ImageInferenceEngine, inspect_model, available_devices
+from .tensor_engine import TensorInferenceEngine
 
 
 def _range_argument(value: str) -> tuple[float, float]:
@@ -78,6 +80,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--report", type=Path,
         help="optional path for a JSON report of timing and model information",
     )
+
+    tensor_infer = commands.add_parser(
+        "infer-tensors",
+        help="run a model with multiple named tensor inputs and outputs",
+    )
+    tensor_infer.add_argument("--model", required=True, type=Path, help="local OpenVINO/ONNX model")
+    tensor_infer.add_argument(
+        "--input", dest="tensor_inputs", action="append", required=True,
+        metavar="NAME=FILE.npy",
+        help="model input name and a local NumPy .npy tensor; repeat for every model input",
+    )
+    tensor_infer.add_argument("--output-dir", required=True, type=Path, help="directory for output .npy tensors")
+    tensor_infer.add_argument("--device", default="ARC", help="ARC (default) or exact GPU.X ID")
+    tensor_infer.add_argument("--warmup", type=int, default=2, help="warm-up calls after model compilation")
+    tensor_infer.add_argument("--iterations", type=int, default=10, help="measured calls (default: 10)")
+    tensor_infer.add_argument("--report", type=Path, help="optional JSON timing report")
     return parser
 
 
@@ -115,12 +133,10 @@ def _run_inspect(args: argparse.Namespace) -> int:
     print(json.dumps(report, indent=2))
     if not report["supported_by_current_image_engine"]:
         print(
-            "This model does not match the current single-image contract. "
-            "A dedicated adapter is required for models with multiple inputs/outputs "
-            "or non-image tensor shapes.",
+            "This model needs the multi-input tensor engine or a model-specific adapter; "
+            "the convenience image command cannot infer its tensor semantics automatically.",
             file=sys.stderr,
         )
-        return 3
     return 0
 
 
@@ -264,6 +280,161 @@ def _run_inference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_named_tensor(value: str) -> tuple[str, Path]:
+    """Parse NAME=PATH while allowing equals signs in the path."""
+    if "=" not in value:
+        raise ValueError(f"Tensor input {value!r} must be written as NAME=FILE.npy.")
+    name, raw_path = value.split("=", maxsplit=1)
+    name = name.strip()
+    path = Path(raw_path.strip()).expanduser()
+    if not name or not raw_path.strip():
+        raise ValueError(f"Tensor input {value!r} must include both a name and a file path.")
+    return name, path
+
+
+def _safe_tensor_filename(name: str) -> str:
+    """Keep model-provided port names from escaping the output directory."""
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")
+    return cleaned or "tensor"
+
+
+def _run_tensor_inference(args: argparse.Namespace) -> int:
+    """Run a model-specific multi-input graph on the selected local GPU."""
+    if args.warmup < 0:
+        raise ValueError("--warmup cannot be negative.")
+    if args.iterations < 1:
+        raise ValueError("--iterations must be at least 1.")
+    if not args.model.is_file():
+        raise FileNotFoundError(f"Model file does not exist: {args.model}")
+
+    parsed_inputs = [_parse_named_tensor(value) for value in args.tensor_inputs]
+    names = [name for name, _ in parsed_inputs]
+    if len(set(names)) != len(names):
+        raise ValueError("Each model input name may be supplied only once.")
+
+    tensor_arrays: dict[str, np.ndarray] = {}
+    input_paths: dict[str, Path] = {}
+    for name, path in parsed_inputs:
+        if not path.is_file():
+            raise FileNotFoundError(f"Tensor input file does not exist: {path}")
+        if path.suffix.casefold() != ".npy":
+            raise ValueError(f"Tensor input {path} must be a .npy file.")
+        try:
+            array = np.load(path, allow_pickle=False)
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"Could not read numeric tensor {path}: {exc}") from exc
+        if not isinstance(array, np.ndarray) or array.dtype.hasobject:
+            raise ValueError(f"Tensor input {path} is not a numeric NumPy array.")
+        tensor_arrays[name] = array
+        input_paths[name] = path.resolve()
+
+    resolved_model = args.model.expanduser().resolve()
+    resolved_report = args.report.resolve() if args.report else None
+    protected = {resolved_model, *input_paths.values()}
+    if resolved_report in protected:
+        raise ValueError("The JSON report path must not overwrite a model or input tensor.")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    engine_load_started = perf_counter()
+    engine = TensorInferenceEngine(args.model, device=args.device)
+    model_load_ms = (perf_counter() - engine_load_started) * 1000.0
+
+    missing = sorted(set(engine.input_names) - set(tensor_arrays))
+    extra = sorted(set(tensor_arrays) - set(engine.input_names))
+    if missing or extra:
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if extra:
+            details.append("unknown: " + ", ".join(extra))
+        raise ValueError(
+            "Tensor files do not match this model's ports (" + "; ".join(details) + "). "
+            "Run xess5 inspect --model MODEL first to see the exact input names."
+        )
+
+    prime_started = perf_counter()
+    last = engine.infer(tensor_arrays)
+    prime_call_ms = (perf_counter() - prime_started) * 1000.0
+
+    for _ in range(args.warmup):
+        last = engine.infer(tensor_arrays)
+
+    measured_inference_ms: list[float] = []
+    measured_total_ms: list[float] = []
+    for _ in range(args.iterations):
+        last = engine.infer(tensor_arrays)
+        measured_inference_ms.append(last.inference_ms)
+        measured_total_ms.append(last.total_ms)
+
+    output_paths: dict[str, str] = {}
+    used_names: set[str] = set()
+    for index, (name, output) in enumerate(last.outputs.items()):
+        stem = _safe_tensor_filename(name)
+        if stem in used_names:
+            stem = f"{stem}_{index}"
+        used_names.add(stem)
+        destination = (args.output_dir / f"{stem}.npy").resolve()
+        if destination in protected or destination == resolved_report:
+            raise ValueError(
+                f"Output tensor path {destination} would overwrite an input or report."
+            )
+        np.save(destination, output, allow_pickle=False)
+        output_paths[name] = str(destination)
+
+    inference_median = float(np.median(measured_inference_ms))
+    total_median = float(np.median(measured_total_ms))
+    report: dict[str, object] = {
+        "engine": "XESS5",
+        "engine_version": __version__,
+        "operation": "multi_input_tensor_inference",
+        "model": last.model_path,
+        "device_requested": args.device,
+        "device_selected": last.device,
+        "device_name": last.device_name,
+        "model_load_ms": round(model_load_ms, 3),
+        "prime_call_ms": round(prime_call_ms, 3),
+        "warmup_calls": args.warmup,
+        "iterations": args.iterations,
+        "inputs": {
+            name: {
+                "path": str(input_paths[name]),
+                "shape": list(last.input_shapes[name]),
+                "dtype": str(tensor_arrays[name].dtype),
+            }
+            for name in engine.input_names
+        },
+        "outputs": {
+            name: {
+                "path": output_paths[name],
+                "shape": list(last.output_shapes[name]),
+                "dtype": str(array.dtype),
+            }
+            for name, array in last.outputs.items()
+        },
+        "inference_ms": {
+            "min": round(min(measured_inference_ms), 3),
+            "median": round(inference_median, 3),
+            "p95": round(_percentile(measured_inference_ms, 95), 3),
+            "max": round(max(measured_inference_ms), 3),
+        },
+        "engine_call_ms": {
+            "min": round(min(measured_total_ms), 3),
+            "median": round(total_median, 3),
+            "p95": round(_percentile(measured_total_ms, 95), 3),
+            "max": round(max(measured_total_ms), 3),
+        },
+        "note": (
+            "This runs the selected model with supplied tensors; XESS5 does not guess "
+            "preprocessing for color, depth, motion vectors, noise, or temporal history. "
+            "Only a verified model-specific adapter can turn these outputs into neural rendering."
+        ),
+    }
+    print(json.dumps(report, indent=2))
+    if args.report:
+        _write_json(args.report, report)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -274,6 +445,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_inspect(args)
         if args.command == "infer":
             return _run_inference(args)
+        if args.command == "infer-tensors":
+            return _run_tensor_inference(args)
         parser.error("unknown command")
     except (BackendUnavailable, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"XESS5 error: {exc}", file=sys.stderr)
