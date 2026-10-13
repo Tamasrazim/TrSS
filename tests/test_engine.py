@@ -192,7 +192,7 @@ def test_inspect_model_returns_names_shapes_and_precision(monkeypatch, tmp_path)
     assert summary["inputs"][0]["shape"] == [1, 3, 224, 320]
     assert summary["outputs"][0]["shape"] == [1, 3, 448, 640]
     assert summary["inputs"][0]["precision"] == "f32"
-    assert summary["supported_by_current_image_engine"] is True
+    assert summary["rank_four_single_input_output_candidate"] is True
 
 
 def test_engine_runs_identity_model_and_reports_actual_arc_device(monkeypatch, tmp_path):
@@ -256,3 +256,17 @@ def test_engine_validates_numeric_ranges_before_loading_backend(monkeypatch, tmp
 
     with pytest.raises(ModelContractError, match="input range"):
         ImageInferenceEngine(model_file, input_range=(1.0, 1.0))
+
+
+
+def test_inspect_model_does_not_call_non_rank_four_models_image_candidates(monkeypatch, tmp_path):
+    core = FakeCore(model=FakeModel(
+        inputs=[[1, 3, 224, 224], [1, 1, 224, 224]],
+        outputs=[[1, 3, 224, 224]],
+    ))
+    model_file = install_fake_openvino(monkeypatch, tmp_path, core)
+
+    summary = inspect_model(model_file)
+
+    assert summary["rank_four_single_input_output_candidate"] is False
+    assert "does not prove" in summary["note"]
