@@ -1,0 +1,29 @@
+name: Native Vulkan source compile
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-xmx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out XESS5
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan development headers and loader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev
+
+      - name: Compile the native XMX Vulkan runtime
+        run: |
+          cc -std=gnu11 -O2 -fPIC -shared \
+            -I/usr/include \
+            -o /tmp/libxmx.so \
+            vendor/dlss-nr-intel/src/gpu/libxmx.c \
+            -lvulkan
