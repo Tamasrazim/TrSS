@@ -1,0 +1,33 @@
+name: XESS5 model and training tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  training-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out XESS5
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU PyTorch and XESS5 test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e ".[test]"
+
+      - name: Check Python syntax
+        run: python -m compileall -q xess5 tests
+
+      - name: Test model shape, composition, gradients, and dataset contracts
+        run: python -m pytest tests/test_training.py tests/test_training_manifest.py
