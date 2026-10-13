@@ -14,6 +14,8 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Model inspection:** reads a local ONNX/OpenVINO-supported model and describes its input/output names, shapes, and precision without running inference.
 - **Multi-input/multi-output inference:** named tensors are checked against the model's actual ports. Dynamic shapes are specialized and compiled for the selected GPU; outputs and timing details are returned explicitly.
 - **Graphics-frame contract:** `FramePacket` carries source color plus only those depth, motion-vector, noise, and conditioning buffers actually supplied by the source, along with color/depth/motion conventions.
+- **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
+- **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, and temporal history without pretending to test real GPU performance.
 
@@ -58,6 +60,16 @@ xess5 infer --model "models\your-model.onnx" --input "input.png" --output "outpu
 
 Use this only for a model that truly expects a single rank-four image tensor and returns a rank-four image tensor. Confirm channel order, layout, dimensions, and ranges from the model's documentation. The reported inference-equivalent FPS is only the reciprocal of the isolated model time; it is not game FPS.
 
+### Adapt a captured frame to model inputs
+
+For a model whose port semantics you have verified, create a model-specific JSON file using [the adapter template](docs/examples/adapter-template.json), then run a saved frame with the actual auxiliary buffers available to your capture workflow:
+
+```powershell
+xess5 render-frame --model "models\render-model.onnx" --spec "models\render-adapter.json" --color "frames\frame-0001.png" --depth "frames\depth-0001.npy" --motion "frames\motion-0001.npy" --history "frames\previous-output.npy" --output-dir "work\frame-output" --device ARC --warmup 2 --iterations 10 --report "logs\frame-report.json"
+```
+
+Only provide buffers that actually exist and that the adapter spec requires. Depth and motion encoding, color space, model-specific noise, tensor normalization, temporal reprojection, and output-head composition must match the chosen model's documentation. See [MODEL-ADAPTERS.md](docs/MODEL-ADAPTERS.md). This command processes offline frame files; it does not capture a live game or claim real-time performance.
+
 ### Execute a model with multiple named tensors
 
 For a model with color, depth, motion, history, or conditioning inputs, save the exact tensors expected by that model as NumPy `.npy` files and pass one `--input NAME=FILE.npy` argument per declared input:
@@ -78,14 +90,14 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 
 ## Still missing for actual neural rendering
 
-1. **A model-specific neural-rendering adapter.** The actual graph's tensor meanings, noise generation, conditioning, weights, precision, and output composition must match a compatible and legally usable model.
+1. **A verified model-specific neural-rendering adapter.** The generic frame adapter is implemented, but the selected graph's exact tensor semantics, noise generation, conditioning, preprocessing, weights, precision, and output composition must match a compatible and legally usable model.
 2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with XESS5.
 3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
 5. **Live GPU integration.** There is no XESS5 Vulkan layer/game hook yet.
 6. **Physical hardware validation.** No XESS5 run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
 
-A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The next real milestone is a model-specific adapter using properly licensed model material, then measured execution on the actual B580.
+A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The next real milestone is to match an actually usable neural-rendering model's exact contract and parameters, add its preprocessing and output composition, and measure execution on the physical B580.
 
 ## Research references
 
