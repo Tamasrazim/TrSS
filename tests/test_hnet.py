@@ -55,6 +55,24 @@ def test_geometry_mirrors_without_repeating_the_last_pixel():
     assert np.array_equal(geometry.crop(extended), source)
 
 
+def test_mirror_padding_repeats_when_the_network_field_is_much_larger():
+    # Tiny frames can be padded to a much larger minimum neural-network field.
+    # Reflection must continue periodically instead of turning into a flat border.
+    geometry = NetworkGeometry(
+        output_width=4,
+        output_height=3,
+        network_width=10,
+        network_height=7,
+    )
+    source = np.arange(3 * 4, dtype=np.float32).reshape(3, 4, 1)
+
+    extended = geometry.extend(source)
+
+    assert extended[0, :, 0].tolist() == [0, 1, 2, 3, 2, 1, 0, 1, 2, 3]
+    assert extended[:, 0, 0].tolist() == [0, 4, 8, 4, 0, 4, 8]
+    assert np.array_equal(geometry.crop(extended), source)
+
+
 def test_noise_is_repeatable_for_a_frame_and_changes_with_frame_index():
     first = deterministic_noise(9, 13, frame_index=4)
     again = deterministic_noise(9, 13, frame_index=4)
