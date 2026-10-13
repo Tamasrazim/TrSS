@@ -36,6 +36,12 @@ def _port_name(port: Any, index: int, prefix: str) -> str:
 def _port_numpy_dtype(port: Any) -> np.dtype:
     """Map common OpenVINO tensor element types to NumPy dtypes."""
     label = str(port.element_type).casefold()
+    # bfloat16 is not IEEE float16; the substring "float16" also occurs in its name.
+    if "bf16" in label or "bfloat16" in label:
+        raise ModelContractError(
+            f"Model tensor precision {port.element_type!s} is bfloat16, which the generic "
+            "adapter does not support yet."
+        )
     mappings = (
         (("f16", "float16"), np.float16),
         (("f32", "float32"), np.float32),
