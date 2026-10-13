@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <new>
+#include <utility>
 
 #include <windows.h>
 #include <wincodec.h>
