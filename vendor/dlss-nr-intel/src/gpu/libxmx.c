@@ -627,11 +627,44 @@ int xmx_init(const char *spv_path)
 	vkEnumeratePhysicalDevices(g.inst, &n, NULL);
 	if (!n) FAIL("no physical device", 0);
 	VkPhysicalDevice *pds = calloc(n, sizeof *pds);
+	if (!pds) FAIL("allocating physical-device list", 0);
 	vkEnumeratePhysicalDevices(g.inst, &n, pds);
-	g.pd = pds[0];
+
+	/* XESS5 must not assume Vulkan's first adapter is the Arc card: hybrid PCs can
+	 * expose an integrated GPU before a discrete Arc GPU. Let an operator provide
+	 * an unambiguous substring, otherwise prefer a device whose reported name
+	 * contains "Arc". The Python adapter also verifies the final device name. */
+	const char *requested_device = getenv("XESS5_VULKAN_DEVICE");
+	VkPhysicalDevice selected = VK_NULL_HANDLE;
+	VkPhysicalDeviceProperties props = {0};
+	VkPhysicalDeviceProperties candidate = {0};
+	if (requested_device && requested_device[0]) {
+		for (uint32_t i = 0; i < n; ++i) {
+			vkGetPhysicalDeviceProperties(pds[i], &candidate);
+			if (strstr(candidate.deviceName, requested_device)) {
+				selected = pds[i];
+				props = candidate;
+				break;
+			}
+		}
+		if (selected == VK_NULL_HANDLE) {
+			free(pds);
+			FAIL("XESS5_VULKAN_DEVICE substring matched no Vulkan adapter", 0);
+		}
+	} else {
+		selected = pds[0];
+		vkGetPhysicalDeviceProperties(selected, &props);
+		for (uint32_t i = 0; i < n; ++i) {
+			vkGetPhysicalDeviceProperties(pds[i], &candidate);
+			if (strstr(candidate.deviceName, "Arc")) {
+				selected = pds[i];
+				props = candidate;
+				break;
+			}
+		}
+	}
+	g.pd = selected;
 	free(pds);
-	VkPhysicalDeviceProperties props;
-	vkGetPhysicalDeviceProperties(g.pd, &props);
 	snprintf(g.name, sizeof g.name, "%s", props.deviceName);
 	g.discrete = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
