@@ -249,6 +249,14 @@ class TemporalHistory:
                 "rendered_output must be RGB HWC and match the source dimensions; "
                 f"expected {(frame.height, frame.width, 3)}, got {image.shape!r}."
             )
+        # Temporal history is consumed as normalized RGB by frame adapters.
+        # Storing raw [-1, 1] model heads or byte-valued pixels would corrupt the
+        # next frame, so require display-range output rather than silently clipping it.
+        if np.min(image) < 0.0 or np.max(image) > 1.0:
+            raise FrameValidationError(
+                "rendered_output values must be normalized to the [0, 1] range before "
+                "they are stored as temporal history."
+            )
 
         self._output = np.ascontiguousarray(image, dtype=np.float32).copy()
         self._timestamp = float(frame.timestamp)
