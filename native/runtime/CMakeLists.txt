@@ -8,6 +8,7 @@ endif()
 
 add_library(trss_runtime SHARED
   src/trss_runtime.cpp
+  src/dxgi.def
 )
 
 target_compile_features(trss_runtime PRIVATE cxx_std_17)
