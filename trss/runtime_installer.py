@@ -174,24 +174,25 @@ def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dic
             )
 
     created: list[Path] = []
+    staged = game_dir / f"{RUNTIME_DLL_NAME}.trss-installing"
     try:
         trss_dir.mkdir(parents=True, exist_ok=True)
         preset_dir.mkdir(parents=True, exist_ok=True)
         if not config_path.exists():
-            config_path.write_text(default_config_text(), encoding="utf-8")
+            # Track each new path before writing, so a disk-full or permission
+            # error cannot leave a partial configuration file behind.
             created.append(config_path)
+            config_path.write_text(default_config_text(), encoding="utf-8")
 
         for name, settings in PRESETS.items():
             path = preset_dir / f"{name}.ini"
             if not path.exists():
-                path.write_text(preset_text(name, settings), encoding="utf-8")
                 created.append(path)
+                path.write_text(preset_text(name, settings), encoding="utf-8")
 
         dll_hash = sha256_file(dll)
-        staged = game_dir / f"{RUNTIME_DLL_NAME}.trss-installing"
         shutil.copy2(dll, staged)
         if sha256_file(staged) != dll_hash:
-            staged.unlink(missing_ok=True)
             raise RuntimeInstallError("Copied runtime DLL checksum did not match the build.")
         os.replace(staged, runtime_target)
         created.append(runtime_target)
@@ -206,12 +207,18 @@ def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dic
             "graphics_api_target": "Direct3D 11 via DXGI",
             "network_upload": False,
         }
+        created.append(manifest_path)
         manifest_path.write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
     except Exception:
-        # On an interrupted install, remove only files made by this attempt.
+        # Remove only files created by this attempt. The staged DLL is temporary
+        # and can always be removed because it is uniquely named by TrSS.
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
         for path in reversed(created):
             try:
                 if path.is_file():
