@@ -53,4 +53,4 @@ target_compile_options(trss_d3d9_probe PRIVATE /W4 /permissive- /EHsc /utf-8)
 target_link_libraries(trss_d3d9_probe PRIVATE d3d9 user32)
 set_target_properties(trss_d3d9_probe PROPERTIES CXX_EXTENSIONS OFF)
 
-message(STATUS "TrSS API probes: Direct3D 9Ex, Direct3D 11, and Direct3D 12")
+message(STATUS "TrSS API probes: Direct3D 9, Direct3D 11, and Direct3D 12")
