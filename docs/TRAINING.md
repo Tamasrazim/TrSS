@@ -59,10 +59,10 @@ The installed `trss-split-dataset` command runs the same tool. Its JSON report l
 
 ### Audit the actual training inputs before training
 
-Run the structural audit on the generated manifests. It decodes each input/reference image, checks that every reference is exactly 2× the input resolution, validates depth, motion, and optional temporal-history shapes/ranges, reports motion values that will be clipped by the configured scale, and compares decoded pixels across the two splits. Pixel hashing also catches exact duplicates that were saved under different file names.
+Run the structural audit on the generated manifests. It decodes each input/reference image, checks that every reference is exactly 2× the input resolution, validates depth, motion, and optional temporal-history shapes/ranges, reports motion values that will be clipped by the configured scale, and compares decoded pixels across the two splits. Pixel hashing catches exact duplicates saved under different file names. A second, warning-only check compares 64-bit difference hashes and mean RGB values to flag likely near-duplicates that were resized, lightly altered, or re-encoded. This is a heuristic: review its examples manually and keep scene/capture-level separation as the primary defence against leakage.
 
 ```powershell
-python -m trss.training.audit_dataset --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --provenance-json data/provenance.json --report logs/dataset-audit.json --motion-scale-px 64
+python -m trss.training.audit_dataset --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --provenance-json data/provenance.json --report logs/dataset-audit.json --motion-scale-px 64 --near-duplicate-hamming-distance 4 --near-duplicate-mean-rgb-distance 10
 ```
 
 The provenance file must be a JSON object with non-empty `dataset_name`, `source`, and `license` fields, for example:
@@ -75,7 +75,7 @@ The provenance file must be a JSON object with non-empty `dataset_name`, `source
 }
 ```
 
-The installed `trss-audit-dataset` command runs the same audit. It returns a non-zero exit code when structural errors or split leakage are found and writes the full JSON report, including per-frame dimensions, depth/motion statistics, and history-valid coverage. If provenance is omitted, the audit warns that licensing and origin are unverified. This is not a visual alignment or legal review: inspect example pairs and verify every asset's terms yourself.
+The installed `trss-audit-dataset` command runs the same audit. It returns a non-zero exit code for structural errors, scene overlap, or exact pixel leakage; perceptual near-duplicate matches are warnings only and do not change the pass/fail result. The JSON report includes counts by image field and the nearest detected training example for each flagged validation image. The Hamming-distance threshold can be 0–16; the mean RGB distance is measured on 0–255 RGB channel averages. If provenance is omitted, the audit warns that licensing and origin are unverified. This is not a visual alignment or legal review: inspect example pairs and verify every asset's terms yourself.
 
 ### Visually review paired frames offline
 

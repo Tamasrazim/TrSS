@@ -58,6 +58,127 @@ def _pixel_hash(pixels: np.ndarray) -> str:
     return digest.hexdigest()
 
 
+def _difference_hash(pixels: np.ndarray) -> int:
+    """Create a compact 64-bit image signature for approximate duplicate screening."""
+    thumbnail = Image.fromarray(pixels, mode="RGB").convert("L").resize(
+        (9, 8), Image.Resampling.LANCZOS
+    )
+    values = np.asarray(thumbnail, dtype=np.uint8)
+    differences = values[:, 1:] > values[:, :-1]
+    signature = 0
+    for bit in differences.reshape(-1):
+        signature = (signature << 1) | int(bit)
+    return signature
+
+
+def _mean_rgb(pixels: np.ndarray) -> list[float]:
+    """Return mean RGB values used to reject obvious dHash collisions."""
+    return [float(value) for value in pixels.mean(axis=(0, 1))]
+
+
+def _hash_segments(signature: int, parts: int) -> list[tuple[int, int]]:
+    """Split a 64-bit signature into bands for efficient bounded-distance matching."""
+    base_width, extra_bits = divmod(64, parts)
+    segments: list[tuple[int, int]] = []
+    shift = 0
+    for part in range(parts):
+        width = base_width + (1 if part < extra_bits else 0)
+        segments.append((part, (signature >> shift) & ((1 << width) - 1)))
+        shift += width
+    return segments
+
+
+def _near_duplicate_matches(
+    training_records: list[dict[str, Any]],
+    validation_records: list[dict[str, Any]],
+    *,
+    max_hamming_distance: int,
+    max_mean_rgb_distance: float,
+) -> list[dict[str, Any]]:
+    """Find probable cross-split near-duplicates; matches are warning-only heuristics."""
+    if not training_records or not validation_records:
+        return []
+
+    # With distance <= N, splitting into N+1 bands guarantees a matching band.
+    # Mean-luminance buckets keep large, flat-color datasets from collapsing into
+    # one enormous candidate set when their difference hashes are all zero.
+    band_count = max_hamming_distance + 1
+    bucket_width = 16.0
+    band_index: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+
+    def luminance_bucket(record: dict[str, Any]) -> int:
+        red, green, blue = record["mean_rgb"]
+        luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return int(luminance // bucket_width)
+
+    for train_index, record in enumerate(training_records):
+        bucket = luminance_bucket(record)
+        for band_number, band_value in _hash_segments(
+            int(record["difference_hash"]), band_count
+        ):
+            for nearby_bucket in (bucket - 1, bucket, bucket + 1):
+                band_index[(band_number, band_value, nearby_bucket)].append(train_index)
+
+    exact_training_hashes = {record["pixel_sha256"] for record in training_records}
+    matches: list[dict[str, Any]] = []
+    for validation_record in validation_records:
+        # Exact duplicates are already reported as hard errors elsewhere.
+        if validation_record["pixel_sha256"] in exact_training_hashes:
+            continue
+
+        bucket = luminance_bucket(validation_record)
+        candidates: set[int] = set()
+        for band_number, band_value in _hash_segments(
+            int(validation_record["difference_hash"]), band_count
+        ):
+            for nearby_bucket in (bucket - 1, bucket, bucket + 1):
+                candidates.update(band_index.get((band_number, band_value, nearby_bucket), ()))
+
+        best: tuple[int, float, str, dict[str, Any]] | None = None
+        for train_index in candidates:
+            training_record = training_records[train_index]
+            hamming_distance = (
+                int(validation_record["difference_hash"])
+                ^ int(training_record["difference_hash"])
+            ).bit_count()
+            if hamming_distance > max_hamming_distance:
+                continue
+
+            color_distance = math.sqrt(sum(
+                (left - right) ** 2
+                for left, right in zip(
+                    validation_record["mean_rgb"], training_record["mean_rgb"]
+                )
+            ))
+            if color_distance > max_mean_rgb_distance:
+                continue
+
+            candidate = (
+                hamming_distance,
+                color_distance,
+                str(training_record["path"]),
+                training_record,
+            )
+            if best is None or candidate[:3] < best[:3]:
+                best = candidate
+
+        if best is not None:
+            hamming_distance, color_distance, _, training_record = best
+            matches.append({
+                "hamming_distance": hamming_distance,
+                "mean_rgb_distance": round(color_distance, 4),
+                "training_record": {
+                    key: training_record[key]
+                    for key in ("scene_id", "line", "path")
+                },
+                "validation_record": {
+                    key: validation_record[key]
+                    for key in ("scene_id", "line", "path")
+                },
+            })
+    return matches
+
+
 def _read_npy(path: Path, field: str) -> np.ndarray:
     """Load a numeric array without allowing embedded Python objects."""
     try:
@@ -133,6 +254,7 @@ def _audit_row(
     scene_field: str,
     motion_scale_px: float,
     hashes: dict[str, dict[str, list[dict[str, Any]]]],
+    perceptual_hashes: dict[str, list[dict[str, Any]]],
     errors: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Validate one paired frame and collect hashes for exact-leak detection."""
@@ -172,8 +294,17 @@ def _audit_row(
             ("target", target_rgb, target_path),
         ):
             digest = _pixel_hash(pixels)
-            hashes[field].setdefault(digest, []).append({
-                "scene_id": scene, "line": line, "path": str(path),
+            record = {
+                "scene_id": scene,
+                "line": line,
+                "path": str(path),
+                "pixel_sha256": digest,
+            }
+            hashes[field].setdefault(digest, []).append(record)
+            perceptual_hashes[field].append({
+                **record,
+                "difference_hash": _difference_hash(pixels),
+                "mean_rgb": _mean_rgb(pixels),
             })
 
         if (target_height, target_width) != (low_height * 2, low_width * 2):
@@ -289,8 +420,10 @@ def audit_manifests(
     scene_field: str = "scene_id",
     motion_scale_px: float = 64.0,
     provenance_json: str | Path | None = None,
+    near_duplicate_hamming_distance: int = 4,
+    near_duplicate_mean_rgb_distance: float = 10.0,
 ) -> dict[str, Any]:
-    """Audit frame contracts and look for exact decoded-pixel leakage."""
+    """Audit frame contracts and exact/approximate cross-split image leakage."""
     train_path = Path(train_manifest).expanduser().resolve()
     validation_path = Path(validation_manifest).expanduser().resolve()
     report_file = Path(report_path).expanduser().resolve()
@@ -301,6 +434,19 @@ def audit_manifests(
 
     if not math.isfinite(motion_scale_px) or motion_scale_px <= 0:
         raise ValueError("motion_scale_px must be finite and greater than zero.")
+    if (
+        not isinstance(near_duplicate_hamming_distance, int)
+        or isinstance(near_duplicate_hamming_distance, bool)
+        or not 0 <= near_duplicate_hamming_distance <= 16
+    ):
+        raise ValueError("near_duplicate_hamming_distance must be an integer from 0 to 16.")
+    if (
+        not math.isfinite(near_duplicate_mean_rgb_distance)
+        or near_duplicate_mean_rgb_distance < 0
+    ):
+        raise ValueError(
+            "near_duplicate_mean_rgb_distance must be finite and non-negative."
+        )
     if not scene_field.strip():
         raise ValueError("scene_field must be a non-empty metadata field name.")
     protected_paths = {train_path, validation_path}
@@ -313,6 +459,7 @@ def audit_manifests(
     warnings: list[dict[str, Any]] = []
     split_details: dict[str, Any] = {}
     hashes: dict[str, dict[str, dict[str, list[dict[str, Any]]]]] = {}
+    perceptual_hashes: dict[str, dict[str, list[dict[str, Any]]]] = {}
     scene_sets: dict[str, set[str]] = {}
 
     for split_name, path in (("training", train_path), ("validation", validation_path)):
@@ -321,6 +468,10 @@ def audit_manifests(
             "low_res": defaultdict(list),
             "target": defaultdict(list),
         }
+        split_perceptual_hashes: dict[str, list[dict[str, Any]]] = {
+            "low_res": [],
+            "target": [],
+        }
         row_details = [
             _audit_row(
                 raw, resolved,
@@ -328,6 +479,7 @@ def audit_manifests(
                 scene_field=scene_field,
                 motion_scale_px=motion_scale_px,
                 hashes=split_hashes,
+                perceptual_hashes=split_perceptual_hashes,
                 errors=errors,
             )
             for raw, resolved in zip(rows, resolved_rows)
@@ -350,6 +502,7 @@ def audit_manifests(
             for row in row_details
         )
         hashes[split_name] = split_hashes
+        perceptual_hashes[split_name] = split_perceptual_hashes
         duplicates = _index_duplicates(split_hashes, split_name, errors, warnings)
         split_details[split_name] = {
             "manifest": str(path),
@@ -388,6 +541,25 @@ def audit_manifests(
                 "validation_records": hashes["validation"][field][digest],
             })
 
+    cross_split_near_duplicates: dict[str, int] = {}
+    for field in _FRAME_FIELDS:
+        matches = _near_duplicate_matches(
+            perceptual_hashes["training"][field],
+            perceptual_hashes["validation"][field],
+            max_hamming_distance=near_duplicate_hamming_distance,
+            max_mean_rgb_distance=near_duplicate_mean_rgb_distance,
+        )
+        cross_split_near_duplicates[field] = len(matches)
+        for match in matches:
+            warnings.append({
+                "field": field,
+                "warning": (
+                    "possible near-duplicate frame pair across training and validation; "
+                    "review manually because perceptual hashes are heuristic"
+                ),
+                **match,
+            })
+
     provenance = None
     if provenance_path is None:
         warnings.append({
@@ -404,14 +576,18 @@ def audit_manifests(
         "passed": not errors,
         "motion_scale_px": motion_scale_px,
         "scene_field": scene_field,
+        "near_duplicate_hamming_distance": near_duplicate_hamming_distance,
+        "near_duplicate_mean_rgb_distance": near_duplicate_mean_rgb_distance,
         "provenance": provenance,
         "cross_split_duplicate_pixel_groups": cross_split_duplicates,
+        "cross_split_near_duplicate_warning_counts": cross_split_near_duplicates,
         "splits": split_details,
         "errors": errors,
         "warnings": warnings,
         "notice": (
             "A structural audit cannot prove that low-resolution inputs and reference "
             "renders are visually aligned, legally usable, or representative of a game. "
+            "Near-duplicate warnings are approximate image-hash matches, not proof of leakage. "
             "Review sample images and capture/asset licences before training."
         ),
     }
@@ -430,6 +606,18 @@ def main() -> int:
     parser.add_argument("--scene-field", default="scene_id")
     parser.add_argument("--motion-scale-px", type=float, default=64.0)
     parser.add_argument(
+        "--near-duplicate-hamming-distance",
+        type=int,
+        default=4,
+        help="Maximum 64-bit difference-hash distance for warning-only matches (0–16).",
+    )
+    parser.add_argument(
+        "--near-duplicate-mean-rgb-distance",
+        type=float,
+        default=10.0,
+        help="Maximum mean RGB distance for warning-only matches (default: 10).",
+    )
+    parser.add_argument(
         "--provenance-json",
         type=Path,
         help="JSON object with non-empty dataset_name, source, and license fields",
@@ -444,6 +632,8 @@ def main() -> int:
             scene_field=args.scene_field,
             motion_scale_px=args.motion_scale_px,
             provenance_json=args.provenance_json,
+            near_duplicate_hamming_distance=args.near_duplicate_hamming_distance,
+            near_duplicate_mean_rgb_distance=args.near_duplicate_mean_rgb_distance,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))

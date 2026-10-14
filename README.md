@@ -13,12 +13,12 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 
 ## Project progress
 
-**Overall engineering estimate toward a complete, live, physically validated neural renderer: 55%**
+**Overall engineering estimate toward a complete, live, physically validated neural renderer: 60%**
 
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment adds an offline visual review gallery with deterministic, scene-balanced sampling so actual input/reference pairs can be inspected before training. The gallery does not synthesize data or prove alignment. Actual training, live capture, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment adds warning-only perceptual near-duplicate checks across training/validation splits, complementing exact pixel hashing. These approximate matches require human review and do not start training or prove image alignment. Actual training, live capture, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -27,7 +27,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Temporal-history safety and CPU-side tests | Implemented |
 | Dataset-split leakage checks and resume-setting validation | Implemented; automated tests |
 | Scene-grouped training/validation manifest splitter | Implemented; deterministic and path-validated |
-| Paired-render dataset audit | Checks image/tensor contracts, scene leakage, pixel duplicates, motion clipping, and provenance metadata |
+| Paired-render dataset audit | Checks image/tensor contracts, scene leakage, exact pixel duplicates, warning-only perceptual near-duplicates, motion clipping, and provenance metadata |
 | Offline visual pair-review gallery | Scene-balanced thumbnails, searchable local HTML, source paths, and decode-error report |
 | Offline checkpoint timing breakdown | Separates setup, model, composition, and output writing; not live FPS |
 | Direct3D 9 legacy render-target probe | Experimental; device/clear/readback test only |
@@ -56,7 +56,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **Offline paired-frame review gallery:** `trss.training.review_dataset` and `trss-review-dataset` create a responsive, searchable HTML page with local thumbnails for a deterministic sample balanced across scene IDs. The tool exposes source paths, dimensions, history-reset state, and image decoding errors for manual review without altering the source dataset.
-- **Paired-render dataset audit:** `trss.training.audit_dataset` and `trss-audit-dataset` validate the actual frame files, 2× image-size contract, depth/motion/history shapes and ranges, scene disjointness, exact decoded-pixel duplicates across the two splits, and optional provenance JSON. This structural check cannot prove visual alignment or the legality of the assets.
+- **Paired-render dataset audit:** `trss.training.audit_dataset` and `trss-audit-dataset` validate the actual frame files, 2× image-size contract, depth/motion/history shapes and ranges, scene disjointness, exact decoded-pixel duplicates across the two splits, and optional provenance JSON. A banded 64-bit difference-hash search also reports likely near-duplicates across splits as warnings; mean-color filtering reduces obvious hash collisions, but the heuristic cannot prove leakage or visual alignment.
 - **Scene-separated dataset split tool:** `trss.training.split_manifest` and `trss-split-dataset` build deterministic training/validation manifests by complete `scene_id` groups, validate referenced files, reject exact cross-scene reuse of input/target frames, preserve provenance fields, and rebase output paths. It organizes supplied data; it does not create training frames.
 - **First-party TrSS training model:** a trainable 10-channel, 2x temporal reconstruction baseline with paired-frame validation, motion-aware flip augmentation, full-frame tiled validation, resumable AdamW/RNG checkpoints, and MAE/PSNR comparison against bicubic interpolation. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, XMX-frame orchestration, and temporal history. CI builds the vendored native runtime, host helpers, and all runtime SPIR-V shaders; it still does not execute them on an Arc GPU.

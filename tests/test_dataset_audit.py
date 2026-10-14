@@ -94,6 +94,9 @@ def test_audit_catches_identical_decoded_frames_saved_under_different_names(tmp_
 
     assert report["passed"] is False
     assert report["cross_split_duplicate_pixel_groups"]["low_res"] == 1
+    assert report["cross_split_near_duplicate_warning_counts"] == {
+        "low_res": 0, "target": 0
+    }
     assert any(
         "identical decoded frame pixels occur in both" in error["error"]
         for error in report["errors"]
@@ -164,3 +167,46 @@ def test_audit_rejects_incomplete_provenance(tmp_path):
 
     assert report["passed"] is False
     assert any("source, license" in error["error"] for error in report["errors"])
+
+
+
+def test_audit_warns_about_near_duplicates_across_splits_without_failing(tmp_path):
+    train = _write_manifest(
+        tmp_path / "train.jsonl", [_make_row(tmp_path, "scene-a", 0, 40)]
+    )
+    validation = _write_manifest(
+        tmp_path / "validation.jsonl", [_make_row(tmp_path, "scene-b", 0, 45)]
+    )
+
+    report = audit_manifests(train, validation, tmp_path / "audit.json")
+
+    assert report["passed"] is True
+    assert report["cross_split_near_duplicate_warning_counts"] == {
+        "low_res": 1, "target": 1
+    }
+    near_warnings = [
+        warning for warning in report["warnings"]
+        if "possible near-duplicate" in warning.get("warning", "")
+    ]
+    assert len(near_warnings) == 2
+    assert all(warning["hamming_distance"] == 0 for warning in near_warnings)
+    assert all(warning["mean_rgb_distance"] < 10 for warning in near_warnings)
+
+
+def test_audit_rejects_invalid_near_duplicate_thresholds(tmp_path):
+    train = _write_manifest(
+        tmp_path / "train.jsonl", [_make_row(tmp_path, "scene-a", 0, 40)]
+    )
+    validation = _write_manifest(
+        tmp_path / "validation.jsonl", [_make_row(tmp_path, "scene-b", 0, 90)]
+    )
+
+    try:
+        audit_manifests(
+            train, validation, tmp_path / "audit.json",
+            near_duplicate_hamming_distance=17,
+        )
+    except ValueError as error:
+        assert "from 0 to 16" in str(error)
+    else:
+        raise AssertionError("expected invalid near-duplicate threshold to be rejected")
