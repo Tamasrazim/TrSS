@@ -36,7 +36,7 @@ def _rewrite_staging_paths(root: Path, final_root: Path) -> None:
     old_prefix = str(root.resolve())
     new_prefix = str(final_root.resolve())
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in (".json", ".jsonl", ".html"):
+        if not path.is_file() or path.suffix.lower() not in (".json", ".jsonl", ".html", ".log"):
             continue
         content = path.read_text(encoding="utf-8")
         updated = content.replace(old_prefix, new_prefix)

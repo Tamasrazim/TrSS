@@ -54,6 +54,8 @@ def test_complete_pilot_runs_train_evaluate_export_and_openvino(tmp_path, monkey
     assert report["stages"]["openvino_smoke"]["passed"] is True
     assert report["stages"]["openvino_smoke"]["device"] == "CPU"
     assert report["stages"]["openvino_smoke"]["live_capture_used"] is False
+    assert len(report["stages"]["openvino_smoke"]["output_sha256"]) == 64
+    assert report["stages"]["openvino_smoke"]["target_metrics"]["mae"] >= 0
     assert report["stages"]["quality_evaluation"]["metrics"]["frames"] == 2
 
     for relative in (
@@ -82,6 +84,9 @@ def test_complete_pilot_runs_train_evaluate_export_and_openvino(tmp_path, monkey
     report_path = output / "experiment-report.json"
     saved = json.loads(report_path.read_text(encoding="utf-8"))
     assert saved["output_dir"] == str(output.resolve())
+    training_log = (output / "training.log").read_text(encoding="utf-8")
+    assert str(output.resolve()) in training_log
+    assert ".experiment-" not in training_log
     assert saved["stages"]["training"]["checkpoint"] == "training/checkpoint-best.pt"
     assert saved["stages"]["onnx_export"]["artifact"] == "artifacts/trss-composed.onnx"
     evaluation = json.loads(

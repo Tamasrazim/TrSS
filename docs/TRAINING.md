@@ -115,7 +115,7 @@ The composed ONNX graph can now be exercised through TrSS's OpenVINO device path
 python -m trss.training.infer_onnx --model models/trss-composed.onnx --manifest data/trss-pilot/validation.jsonl --row 0 --output work/trss-onnx-frame.png --device ARC --report logs/trss-onnx-frame.json
 ```
 
-Use `--device CPU` only as an explicit offline-debug option. The default `ARC` alias requires OpenVINO to identify exactly one Intel Arc adapter; an ambiguous or missing Arc GPU is an error, not a silent CPU fallback. This tests the model artifact and preprocessing path on the selected OpenVINO device, but is still offline manifest inference and does not acquire frames from a running game. The report separates model compilation and inference timing from preprocessing and output writing; none of these values is in-game FPS.
+Use `--device CPU` only as an explicit offline-debug option. The default `ARC` alias requires OpenVINO to identify exactly one Intel Arc adapter; an ambiguous or missing Arc GPU is an error, not a silent CPU fallback. This tests the model artifact and preprocessing path on the selected OpenVINO device, but is still offline manifest inference and does not acquire frames from a running game. The report separates model compilation and inference timing from preprocessing and output writing, records an output PNG SHA-256, and computes MAE/RMSE/PSNR against the paired high-resolution target for that row. These are single-frame display-RGB metrics, not perceptual scores, and none of the timing values is in-game FPS.
 
 ### Build scene-separated train and validation manifests
 

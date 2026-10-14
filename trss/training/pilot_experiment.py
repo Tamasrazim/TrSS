@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import shutil
 import subprocess
 import sys
@@ -101,7 +100,6 @@ def run_pilot_experiment(
     staging = transaction_root / "payload"
     staging.mkdir()
     backup: Path | None = None
-    promoted = False
     stage_seconds: dict[str, float] = {}
 
     try:
@@ -287,6 +285,8 @@ def run_pilot_experiment(
                     "mean_inference_ms": inference_report["mean_inference_ms"],
                     "output_size": inference_report["output_size"],
                     "live_capture_used": inference_report["live_capture_used"],
+                    "output_sha256": inference_report["output_sha256"],
+                    "target_metrics": inference_report["target_metrics"],
                 },
             },
             "stage_seconds": stage_seconds,
@@ -307,7 +307,6 @@ def run_pilot_experiment(
             output.rename(backup)
         try:
             staging.rename(output)
-            promoted = True
         except Exception:
             if backup is not None and backup.exists() and not output.exists():
                 backup.rename(output)
