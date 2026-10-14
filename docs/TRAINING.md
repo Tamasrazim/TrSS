@@ -191,14 +191,45 @@ For a non-reset frame, also pass \`--history\` and \`--history-valid\`. The hist
 
 ## What this does not do yet
 
-- It does not create or download training frames.
+- The ten-channel temporal training pipeline still cannot construct genuine game-renderer depth/motion/history data by itself. The separate RGB-only importer can create spatial pairs from user-recorded game video.
 - It does not supply pretrained model weights.
 - It does not yet convert this model's checkpoint into the vendored native Vulkan/XMX graph. The existing \`xmx-frame\` runner still expects its own fixed research graph and compatible logical-weight format.
-- It does not capture a running game's color, depth, motion, or previous output. A trustworthy graphics-capture/reprojection pipeline must produce those buffers first.
+- The first-party Windows DXGI sampler can record visible desktop color to PNG, and the separate importer can decode ordinary local video recordings. Neither tool reads private game depth/motion buffers, performs temporal reprojection, nor supplies real renderer buffers to the ten-channel temporal model.
 - It does not claim a frame-rate target. Measure output quality, end-to-end latency, VRAM, power, and temperature on the Arc B580 before using it alongside a game.
 
-The next milestone is to assemble a small, legally usable paired dataset, run several training epochs, compare validation metrics and visual outputs, and only then tune model size or begin an XMX kernel implementation for this architecture.
+The next milestone is to inspect spatial-model predictions visually on separate capture scenes, then build renderer-specific auxiliary-buffer access and temporal reprojection. Only after that should TrSS claim anything about a usable real-time temporal renderer.
 
 ## Reference
 
 PyTorch's official Intel GPU installation guidance documents the XPU wheel index and supported hardware: https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html. Driver/runtime requirements depend on the exact operating system and PyTorch release.
+
+
+## Train an RGB-only spatial baseline from recorded gameplay
+
+The separate spatial baseline lets you begin with footage from games already installed on your PC. It uses normal video files from a recorder you already have; it never attaches to the game, reads game memory, or injects a DLL. The importer builds an aligned pair from every selected video frame: the captured frame is the target and a half-resolution reduction of that same frame is the input.
+
+Install the optional decoder and training dependencies:
+
+```powershell
+python -m pip install -e ".[training,video,test]"
+```
+
+Start with **two separate ETS2 recordings** at the same display resolution. Choose different stretches of road or different locations so that validation is not mostly the same scene as training. A native 1920x1080 recording creates 960x540 input frames and 1920x1080 target frames. With the default sampling interval, a 60 fps recording contributes about four samples per second, up to the configured frame limit.
+
+```powershell
+python -m trss.training.import_game_video "D:\Captures\ETS2-road-a.mkv" "D:\Captures\ETS2-road-b.mkv" --output-dir data\ets2-spatial --sample-every 15 --max-frames-per-video 120 --seed 20261014
+```
+
+The command writes `train.jsonl`, `validation.jsonl`, `capture-report.json`, and `provenance.json`, plus the extracted RGB pairs under `frames\`. The complete recording file—not individual nearby frames—is assigned to one split. If only one clip is supplied, or two supplied files have identical content, the importer refuses to proceed. Existing output is protected unless `--force` is explicitly passed.
+
+Train the spatial-only model. The explicit XPU setting fails if the installed PyTorch build cannot see an Intel GPU; use `--device cpu` for a small plumbing test:
+
+```powershell
+python -m trss.training.train_spatial --train-manifest data\ets2-spatial\train.jsonl --validation-manifest data\ets2-spatial\validation.jsonl --output-dir logs\ets2-spatial --device xpu --epochs 5 --patch-size 96
+```
+
+The training report records the checkpoint format, hashes of both manifests, device, per-epoch losses, per-frame and aggregate MAE/RMSE/PSNR, and whether the model's validation score is better than the bicubic baseline. Check `logs\ets2-spatial\checkpoint-best.pt` and `training-report.json` after the run.
+
+**Important limits:** this is a spatial 2x upscaling experiment, not the temporal reconstruction model. It does not receive true game-rendered low-resolution inputs and cannot learn from this dataset how to use game depth, motion vectors, disocclusion masks, or temporal history. The pairs are formed by downsampling the recorded targets, which is useful for a first real-content experiment but does not reproduce the game's original low-resolution rendering pipeline. Do not treat good validation metrics as proof of in-game quality or Arc B580 real-time performance. Keep recordings and extracted game frames local unless you have permission to redistribute them.
+
+Use ETS2 first because it is an easy place to collect long, controlled driving footage. Alan Wake can be a second dataset with darker lighting and bright flashlight/highlight transitions. The Crew 2 can follow for faster motion. Keep PUBG out of the initial capture/integration tests: do not use process hooks or other unapproved tools with its anti-cheat system. Ordinary recordings are enough for this RGB-only first step.
