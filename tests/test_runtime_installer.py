@@ -1,10 +1,31 @@
 """Safety and behavior tests for the TrSS runtime installer."""
 import json
 from pathlib import Path
+import struct
 
 import pytest
 
 import trss.runtime_installer as installer
+
+
+def _write_pe(
+    path: Path,
+    *,
+    machine: int = 0x8664,
+    optional_magic: int = 0x20B,
+    payload: bytes = b"",
+) -> Path:
+    """Write a minimal architecture-identifiable PE header for installer tests."""
+    data = bytearray(0x80 + 26 + len(payload))
+    data[:2] = b"MZ"
+    struct.pack_into("<I", data, 0x3C, 0x80)
+    data[0x80:0x84] = b"PE\\0\\0"
+    struct.pack_into("<H", data, 0x84, machine)
+    struct.pack_into("<H", data, 0x80 + 20, 0xF0)
+    struct.pack_into("<H", data, 0x80 + 24, optional_magic)
+    data[0x80 + 26:] = payload
+    path.write_bytes(data)
+    return path
 
 
 @pytest.fixture
@@ -12,11 +33,10 @@ def install_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(installer, "IS_WINDOWS", True)
     game_dir = tmp_path / "Game"
     game_dir.mkdir()
-    exe = game_dir / "ExampleGame.exe"
-    exe.write_bytes(b"not-a-real-executable; installer only checks the selected filename and existence")
+    exe = _write_pe(game_dir / "ExampleGame.exe", payload=b"test-game")
     dll = tmp_path / "build" / "dxgi.dll"
     dll.parent.mkdir()
-    dll.write_bytes(b"first-party-runtime-test-binary")
+    _write_pe(dll, payload=b"first-party-runtime-test-binary")
     return game_dir, exe, dll
 
 
@@ -41,6 +61,27 @@ def test_installs_first_party_dll_and_creates_settings_and_presets(install_tree)
     assert manifest["product"] == "TrSS Runtime"
     assert manifest["runtime_sha256"] == installer.sha256_file(target)
     assert manifest["network_upload"] is False
+
+
+def test_installer_requires_a_64_bit_game_executable(install_tree) -> None:
+    game_dir, exe, dll = install_tree
+    _write_pe(exe, machine=0x14C, optional_magic=0x10B, payload=b"x86-game")
+
+    with pytest.raises(installer.RuntimeInstallError, match="x64-only"):
+        installer.install_runtime(exe, dll)
+
+    assert not (game_dir / "dxgi.dll").exists()
+    assert not (game_dir / "TrSS.ini").exists()
+
+
+def test_installer_rejects_a_non_pe_runtime_dll(install_tree) -> None:
+    game_dir, exe, dll = install_tree
+    dll.write_bytes(b"not-a-Windows-library")
+
+    with pytest.raises(installer.RuntimeInstallError, match="not a valid Windows PE"):
+        installer.install_runtime(exe, dll)
+
+    assert not (game_dir / "dxgi.dll").exists()
 
 
 def test_refuses_to_overwrite_existing_dxgi_proxy(install_tree) -> None:
