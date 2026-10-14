@@ -34,6 +34,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Direct3D 11 compute probe | Experimental; HLSL dispatch/readback test only |
 | Direct3D 12 compute probe | Experimental; HLSL dispatch/readback test only |
 | Native Vulkan/XMX execution path | Experimental; hardware validation remains |
+| First-party per-game live graphics runtime | Experimental D3D11/DXGI prototype; Windows CI build passes, real-game compatibility remains unverified |
 | Verified neural-rendering model and compatible weights | Not yet bundled or validated |
 | Opt-in visible-window frame capture | Implemented in the Windows recorder; in-game render hooks and auxiliary-buffer extraction remain unimplemented |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
@@ -52,6 +53,8 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
 - **Offline temporal sequence runner:** `render-sequence` reads an explicit JSONL manifest, processes recorded frames in order, carries normalized RGB history only across continuous frames, and resets history after camera cuts, scene/resolution changes, gaps, or stale timestamps. Required depth/motion inputs must be real files; after a history reset, a model that needs history requires an explicit `initial_history` seed.
 - **TrSS Game Library (`trss-recorder`):** a Windows game grid discovers Steam/Epic installs and common or user-selected game folders, extracts executable icons, launches titles, and shows a click-through performance overlay. After every capture, a post-run graphics review collects and verifies the game's current settings. First-party config readers extract only recognized graphics keys from common local settings files; every bundle stores `graphics_settings.json` and a hash-addressed `game_matrix_row.json`. Repeated captures build a shared local `game-matrix.csv` / `game-matrix.jsonl` across profiles. FPS and frametime remain unavailable until TrSS's own frame-event collector exists; no third-party telemetry executable is bundled.
+- **First-party live runtime prototype:** `native/runtime/` builds an app-local `dxgi.dll` proxy for a limited set of compatible Direct3D 11/DXGI games. Install with `TrSS-Runtime-Installer.exe`, then use Ctrl+Alt+Page Up for the in-game post-processing menu, built-in looks, and editable effect controls. The runtime is not yet a live PyTorch renderer and has not been validated in a real game; D3D9, D3D12, Vulkan and OpenGL are outside the current prototype. See [docs/RUNTIME.md](docs/RUNTIME.md).
+- **Independent baseline comparison:** `trss-compare-performance` compares separate recorder sessions for `Baseline` and `TrSS` profiles only when game, experiment group, and game-graphics settings hash match. It exports CSV/JSON differences and preserves missing FPS values. Logs are evaluation data, not direct PyTorch image-training targets.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
@@ -94,6 +97,25 @@ Select a detected game card to launch it. The library extracts the executable's 
 After every recording, TrSS opens a graphics-profile review. It reads allowlisted settings from common game config files where possible and asks you to confirm the values against the game's own Graphics / Display menu. Fill every standard field with an exact value or an explicit applicability state; unknowns and unresolved numeric config enums keep the row marked incomplete. Repeat the capture after changing settings to populate a controlled matrix. Bundles contain `graphics_settings.json` and `game_matrix_row.json`; the cumulative local CSV and JSONL matrix are stored under `%LOCALAPPDATA%\\TrSS\\GameLibrary\\matrix`. Use the **Matrix folder** button to open them. See [the game library guide](docs/RECORDER.md).
 
 **Research limitation:** generic Windows tooling cannot read the active settings menu of every game through one universal API. Config-file detection is best-effort, and in-game confirmation is required for an exact row. Screenshot capture is not renderer-buffer capture: the sample does not extract depth, motion vectors, temporal history, or paired reference renders, so it is not a standalone supervised-model training dataset.
+
+### Install the first-party TrSS live runtime (experimental)
+
+The Windows **Build first-party TrSS live runtime** workflow compiles the runtime and packages a single-file installer. Download the `TrSS-Live-Runtime-windows-x64` artifact from its [latest workflow run](https://github.com/Tamasrazim/TrSS/actions/workflows/build-trss-runtime.yml).
+
+Run `TrSS-Runtime-Installer.exe`, select the actual supported game's executable, then choose **Install runtime**. Start the game normally and press **Ctrl+Alt+Page Up** to open or hide TrSS's menu. The first prototype exposes brightness, contrast, saturation, gamma, sharpening, bloom, vignette, film grain, color temperature and chromatic aberration, plus Neutral, Cinematic, Vibrant, Clarity, Night and Film presets. Custom presets can be saved or loaded.
+
+This is a first-party D3D11/DXGI prototype with a successful CI compile and installer tests, **not universal support or a completed neural-rendering integration**. It has not yet been verified in a real game on your PC. D3D9/D3D12/Vulkan/OpenGL and some swapchain formats are not supported. The installer refuses to overwrite an existing `dxgi.dll`. Do not use it to bypass anti-cheat or game protections. Full scope and uninstall instructions: [docs/RUNTIME.md](docs/RUNTIME.md).
+
+### Compare independent Baseline and TrSS recording runs
+
+Record a baseline with the runtime absent, then install TrSS and record the same game scene again. In the recorder's post-capture review, set the two profile labels to exactly `Baseline` and `TrSS`, use the **same experiment group**, and verify identical game graphics settings. Repeat both runs for stable results. The recorder does not need to connect to TrSS rendering.
+
+~~~powershell
+trss-compare-performance --matrix "$env:LOCALAPPDATA\TrSS\GameLibrary\matrix\game-matrix.jsonl" --output-dir "logs\performance-comparison" --baseline-profile "Baseline" --trss-profile "TrSS" --require-exact
+~~~
+
+The output CSV/JSON compares available per-process CPU/GPU/VRAM/RAM metrics and flags rows that cannot be safely paired. FPS and frametime are omitted while those measurements are unavailable. Performance differences help evaluate runtime overhead; they are not evidence for visual quality by themselves. Neural reconstruction training still needs aligned input/reference images and real depth, motion and history buffers—not just CSV performance logs.
+
 
 ### Identify the actual adapter
 
