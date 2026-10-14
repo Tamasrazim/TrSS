@@ -224,6 +224,15 @@ def test_training_can_resume_from_last_checkpoint(tmp_path, monkeypatch):
     assert "optimizer_state_dict" in checkpoint
 
     monkeypatch.setattr(training, "_run_epoch", real_run_epoch)
+    # Resuming with a different batch size would silently change the run.
+    monkeypatch.setattr(
+        "sys.argv",
+        args + ["--resume", str(checkpoint_path), "--batch-size", "2"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        training.main()
+    assert exc.value.code == 2
+
     monkeypatch.setattr(
         "sys.argv",
         args + ["--resume", str(checkpoint_path)],
