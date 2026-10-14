@@ -414,7 +414,6 @@ def run_sequence(
             result = engine.infer(inputs)
             call_wall_ms = (perf_counter() - inference_started) * 1000.0
             inference_times.append(float(result.inference_ms))
-            complete_times.append((perf_counter() - frame_started) * 1000.0)
             total_compile_ms += float(result.compile_ms)
 
             preview = preview_from_outputs(
@@ -429,6 +428,8 @@ def run_sequence(
             temporary.replace(destination)
 
             temporal.store(frame, preview)
+            # Include preview composition, image encoding, and history storage in frame wall time.
+            complete_times.append((perf_counter() - frame_started) * 1000.0)
             frame_reports.append(
                 {
                     "index": index,
