@@ -114,10 +114,16 @@ float g_animationTime = 0.0f;
 using CreateFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
 using CreateFactory2Fn = HRESULT(WINAPI*)(UINT, REFIID, void**);
 using DeclareRemovalFn = HRESULT(WINAPI*)();
+using DisableVBlankFn = HRESULT(WINAPI*)();
+using GetDebugInterfaceFn = HRESULT(WINAPI*)(REFIID, void**);
+using GetDebugInterface1Fn = HRESULT(WINAPI*)(UINT, REFIID, void**);
 CreateFactoryFn g_realCreateFactory = nullptr;
 CreateFactoryFn g_realCreateFactory1 = nullptr;
 CreateFactory2Fn g_realCreateFactory2 = nullptr;
 DeclareRemovalFn g_realDeclareRemovalSupport = nullptr;
+DisableVBlankFn g_realDisableVBlankVirtualization = nullptr;
+GetDebugInterfaceFn g_realGetDebugInterface = nullptr;
+GetDebugInterface1Fn g_realGetDebugInterface1 = nullptr;
 
 using CreateSwapChainFn = HRESULT(STDMETHODCALLTYPE*)(
     IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
@@ -842,14 +848,15 @@ void render_frame(IDXGISwapChain* swapChain) {
     }
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
-    if (value.enabled) {
-        g_resources.context->CopyResource(g_resources.copyTexture.Get(), backBuffer.Get());
-    }
-
     ComPtr<ID3D11DeviceContextState> previousState;
     const HRESULT switched = g_resources.context1->SwapDeviceContextState(
         g_resources.overlayState.Get(), &previousState);
     if (FAILED(switched) || !previousState) return;
+
+    // Save the original frame only after the game's render-target state is isolated.
+    if (value.enabled) {
+        g_resources.context->CopyResource(g_resources.copyTexture.Get(), backBuffer.Get());
+    }
 
     if (value.enabled) {
         struct alignas(16) ShaderParameters {
@@ -1007,6 +1014,12 @@ void ensure_real_dxgi() {
     g_realCreateFactory2 = reinterpret_cast<CreateFactory2Fn>(GetProcAddress(g_realDxgi, "CreateDXGIFactory2"));
     g_realDeclareRemovalSupport = reinterpret_cast<DeclareRemovalFn>(
         GetProcAddress(g_realDxgi, "DXGIDeclareAdapterRemovalSupport"));
+    g_realDisableVBlankVirtualization = reinterpret_cast<DisableVBlankFn>(
+        GetProcAddress(g_realDxgi, "DXGIDisableVBlankVirtualization"));
+    g_realGetDebugInterface = reinterpret_cast<GetDebugInterfaceFn>(
+        GetProcAddress(g_realDxgi, "DXGIGetDebugInterface"));
+    g_realGetDebugInterface1 = reinterpret_cast<GetDebugInterface1Fn>(
+        GetProcAddress(g_realDxgi, "DXGIGetDebugInterface1"));
 }
 
 HRESULT finish_factory_call(HRESULT hr, REFIID iid, void** factory) {
@@ -1102,6 +1115,28 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DXGIDeclareAdapterRemovalSupport
     ensure_real_dxgi();
     if (!g_realDeclareRemovalSupport) return S_OK;
     return g_realDeclareRemovalSupport();
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DXGIDisableVBlankVirtualization() {
+    using namespace trss_runtime;
+    ensure_real_dxgi();
+    if (!g_realDisableVBlankVirtualization) return E_NOTIMPL;
+    return g_realDisableVBlankVirtualization();
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DXGIGetDebugInterface(REFIID iid, void** debugInterface) {
+    using namespace trss_runtime;
+    ensure_real_dxgi();
+    if (!g_realGetDebugInterface) return DXGI_ERROR_NOT_FOUND;
+    return g_realGetDebugInterface(iid, debugInterface);
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DXGIGetDebugInterface1(
+    UINT flags, REFIID iid, void** debugInterface) {
+    using namespace trss_runtime;
+    ensure_real_dxgi();
+    if (!g_realGetDebugInterface1) return DXGI_ERROR_NOT_FOUND;
+    return g_realGetDebugInterface1(flags, iid, debugInterface);
 }
 
 BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID) {
