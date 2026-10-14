@@ -79,6 +79,21 @@ Open `logs/trss-pilot-evaluation/index.html` to review the nearest-neighbour inp
 
 MAE, RMSE, and PSNR are computed over normalized display-encoded RGB values—not linear-light radiance, perceptual preference, or whole-game frame timings. A metric improvement only says that the checkpoint matches this target set better than bicubic interpolation under the recorded settings. Synthetic-pilot results remain synthetic and must not be presented as proof of real-game generalization or Arc B580 performance.
 
+### Export a trained checkpoint to ONNX
+
+The exporter creates one portable ONNX graph for both the trained network and TrSS's exact RGB output composition. The graph takes four NCHW tensors—`features`, `low_res_rgb`, `history_rgb`, and `history_valid`—and returns the composed RGB frame at 2× input resolution. Dynamic batch and spatial axes are enabled by default, and a neighbouring JSON file records the checkpoint hash, model configuration, tensor contracts, and known limitations.
+
+Install the optional export runtime and export a checkpoint:
+
+```powershell
+python -m pip install -e ".[export]"
+python -m trss.training.export_onnx --checkpoint logs/trss-pilot-training-smoke/checkpoint-best.pt --output models/trss-composed.onnx --opset 17
+```
+
+The equivalent installed command is `trss-export-onnx`. The ONNX file is checked with the ONNX graph validator before it is promoted into place. If either the model or sidecar already exists, the command refuses to replace it unless `--force` is supplied. Use `--static-shapes` only when the model should accept the 16×24 input resolution used for export tracing.
+
+The graph is designed to be imported by a compatible ONNX consumer, including an OpenVINO workflow where the installed operator set supports the exported graph. It is not a complete live renderer or a game hook: the application must supply real, aligned depth and motion data and a history frame already reprojected into the current view. The `features` channels 0–2 must agree with `low_res_rgb`, and the history channels/mask within `features` must agree with the separate full-resolution tensors. Export success and matching CPU tests do not prove visual quality or Arc B580 performance.
+
 ### Build scene-separated train and validation manifests
 
 Put a `scene_id` on every row in one source JSONL manifest. Use the same ID for every frame from a complete scene or capture sequence, and distinct IDs for sequences that must not cross the training/validation boundary. The splitter validates that the referenced files exist, refuses exact low-resolution input or target files labelled as different scenes, preserves additional metadata fields, and rewrites file paths so the generated manifests still resolve from their output folder.

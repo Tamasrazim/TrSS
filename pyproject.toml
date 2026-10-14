@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 gpu = ["openvino>=2025.0"]
 training = ["torch>=2.5"]
+export = ["torch>=2.5", "onnx>=1.16", "onnxruntime>=1.20"]
 test = ["pytest>=8.0"]
 
 [project.scripts]
@@ -26,6 +27,7 @@ trss-review-dataset = "trss.training.review_dataset:main"
 trss-generate-scene-dataset = "trss.training.generate_scene_dataset:main"
 trss-prepare-pilot = "trss.training.prepare_pilot:main"
 trss-evaluate-checkpoint = "trss.training.evaluate_checkpoint:main"
+trss-export-onnx = "trss.training.export_onnx:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]
