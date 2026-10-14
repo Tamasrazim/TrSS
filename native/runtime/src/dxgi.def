@@ -1,0 +1,9 @@
+LIBRARY "dxgi"
+EXPORTS
+    CreateDXGIFactory=TrSSCreateDXGIFactory
+    CreateDXGIFactory1=TrSSCreateDXGIFactory1
+    CreateDXGIFactory2=TrSSCreateDXGIFactory2
+    DXGIDeclareAdapterRemovalSupport=TrSSDXGIDeclareAdapterRemovalSupport
+    DXGIDisableVBlankVirtualization=TrSSDXGIDisableVBlankVirtualization
+    DXGIGetDebugInterface=TrSSDXGIGetDebugInterface
+    DXGIGetDebugInterface1=TrSSDXGIGetDebugInterface1
