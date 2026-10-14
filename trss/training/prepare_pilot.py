@@ -120,6 +120,7 @@ def prepare_pilot_dataset(
         passed = bool(audit["passed"] and gallery["passed"])
         report: dict[str, Any] = {
             "format": "trss-pilot-pipeline-v1",
+            "output_dir": str(output),
             "passed": passed,
             "source_type": "synthetic_controlled_3d_scene",
             "actual_game_capture": False,
