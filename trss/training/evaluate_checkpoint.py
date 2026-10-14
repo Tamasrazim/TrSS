@@ -74,15 +74,12 @@ def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
     """Cover an axis from end to end, including its far edge."""
     if length <= tile_size:
         return [0]
-    if overlap == 0:
-        return list(range(0, length, tile_size))
     stride = tile_size - 2 * overlap
     if stride < 1:
         raise ValueError("tile overlap must be less than half the tile size.")
-    starts = list(range(0, length - tile_size + 1, stride))
-    far_edge = length - tile_size
-    if starts[-1] != far_edge:
-        starts.append(far_edge)
+    starts = [0]
+    while starts[-1] + tile_size < length:
+        starts.append(starts[-1] + stride)
     return starts
 
 
