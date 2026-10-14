@@ -18,7 +18,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled 3D pilot data workflow and an offline checkpoint evaluator that compares trained predictions with bicubic interpolation using per-frame, per-scene, and aggregate MAE/RMSE/PSNR plus visual comparisons. CI trains a tiny CPU smoke model and evaluates its saved checkpoint on held-out synthetic scenes. A first-party Windows DXGI sampler now records color-only desktop frames into a timestamped sequence, but it does not expose game depth/motion buffers or provide a live inference hook. Representative training data, photorealistic-quality validation, full live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled 3D pilot data workflow and an offline checkpoint evaluator that compares trained predictions with bicubic interpolation using per-frame, per-scene, and aggregate MAE/RMSE/PSNR plus visual comparisons. CI trains a tiny CPU smoke model and evaluates its saved checkpoint on held-out synthetic scenes. A first-party Windows DXGI sampler provides standalone desktop acquisition, and the native **TrSS Sample Recorder** adds automatic installed-game detection, launcher buttons, a 120-second warm-up, and image-embedded JSON chunks capped at 23 MiB per file. It captures visible RGB pixels without game injection and never uploads files. `trss-import-sample-recorder` imports those chunks into the existing RGB-only experiment pipeline. Neither utility exposes game depth/motion buffers or provides a live inference hook. Representative training data, photorealistic-quality validation, full live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -261,6 +261,10 @@ python -m pytest
 ```
 
 CI checks syntax and the CPU-only test suite. CI does not have the target Arc B580, so it cannot prove GPU inference speed or visual results.
+
+## TrSS Sample Recorder
+
+The portable Windows GUI is built from `native/sample_recorder/`. Download the `trss-sample-recorder-win-x64` artifact from the **TrSS Sample Recorder - native Windows build** workflow, extract it, and double-click `TrSSSampleRecorder.exe`. It does not require Python or a console window. The application scans common game libraries, launches selected entries, waits 120 seconds after detecting a game window, and writes Base64-embedded JPEG frames into valid JSON chunks no larger than 23 MiB each. Samples remain local unless you manually share them. See [the recorder guide](docs/SAMPLE-RECORDER.md) for supported sources, limitations, privacy notes, and how recorder JSON is imported into the RGB-only experiment pipeline.
 
 ## Still missing for actual neural rendering
 

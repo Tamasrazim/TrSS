@@ -1,0 +1,50 @@
+name: TrSS Sample Recorder - native Windows build
+
+on:
+  push:
+    branches: [main, feature/dataset-capture-tool]
+    paths:
+      - "native/sample_recorder/**"
+      - "docs/SAMPLE-RECORDER.md"
+      - ".github/workflows/sample-recorder-windows.yml"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-recorder:
+    runs-on: windows-latest
+    steps:
+      - name: Check out TrSS
+        uses: actions/checkout@v4
+
+      - name: Configure the native GUI application
+        run: cmake -S native/sample_recorder -B build/sample-recorder -A x64
+
+      - name: Compile the portable Windows executable
+        run: cmake --build build/sample-recorder --config Release --parallel
+
+      - name: Verify and package the application
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE "build/sample-recorder/Release/TrSSSampleRecorder.exe"
+          if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "TrSSSampleRecorder.exe was not produced by the native Windows build."
+          }
+          $size = (Get-Item -LiteralPath $exe).Length
+          Write-Host "Portable executable size: $size bytes"
+          $package = Join-Path $env:GITHUB_WORKSPACE "dist/trss-sample-recorder-win-x64"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $package "TrSSSampleRecorder.exe")
+          Copy-Item -LiteralPath "docs/SAMPLE-RECORDER.md" -Destination (Join-Path $package "README-SAMPLE-RECORDER.md")
+          Compress-Archive -Path (Join-Path $package "*") -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "trss-sample-recorder-win-x64.zip") -Force
+
+      - name: Publish the portable application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trss-sample-recorder-win-x64
+          path: trss-sample-recorder-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
