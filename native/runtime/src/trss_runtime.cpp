@@ -18,6 +18,7 @@
 #include <d3dcompiler.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <windowsx.h>
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
@@ -26,6 +27,8 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -343,7 +346,6 @@ bool load_preset_dialog(HWND owner) {
     dialog.lpstrDefExt = L"ini";
     dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
     if (!GetOpenFileNameW(&dialog)) return false;
-    const auto product = config_value(L"TrSSPreset", L"Product", L"");
     // Read from the selected file directly; never execute or load code from a preset.
     wchar_t productValue[64]{};
     GetPrivateProfileStringW(L"TrSSPreset", L"Product", L"", productValue,
@@ -702,40 +704,35 @@ void handle_menu_click(HWND hwnd, int x, int y) {
 void draw_menu() {
     if (!g_menuVisible.load() || !g_resources.d2dTarget) return;
     ID2D1RenderTarget* target = g_resources.d2dTarget.Get();
-    ComPtr<ID2D1SolidColorBrush> white;
-    ComPtr<ID2D1SolidColorBrush> muted;
-    ComPtr<ID2D1SolidColorBrush> accent;
-    ComPtr<ID2D1SolidColorBrush> panel;
-    ComPtr<ID2D1SolidColorBrush> panelHeader;
-    ComPtr<ID2D1SolidColorBrush> sliderBack;
-    ComPtr<ID2D1SolidColorBrush> button;
-    if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0xF1F4F8), &white)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x93A0B1), &muted)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x81C5FF), &accent)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x10141B, 0.97f), &panel)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x202834), &panelHeader)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x3A4657), &sliderBack)) ||
-        FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0x27313F), &button))) return;
+    // Reuse brushes created with the back-buffer target to avoid per-frame COM allocations.
+    ID2D1SolidColorBrush* white = g_resources.textBrush.Get();
+    ID2D1SolidColorBrush* muted = g_resources.mutedBrush.Get();
+    ID2D1SolidColorBrush* accent = g_resources.accentBrush.Get();
+    ID2D1SolidColorBrush* panel = g_resources.panelBrush.Get();
+    ID2D1SolidColorBrush* panelHeader = g_resources.panelHeaderBrush.Get();
+    ID2D1SolidColorBrush* sliderBack = g_resources.sliderBackBrush.Get();
+    ID2D1SolidColorBrush* button = g_resources.buttonBrush.Get();
+    if (!white || !muted || !accent || !panel || !panelHeader || !sliderBack || !button) return;
 
     target->BeginDraw();
     const D2D1_RECT_F menu = D2D1::RectF(
         kMenuLeft, kMenuTop, kMenuLeft + kMenuWidth, kMenuTop + kMenuHeight);
-    target->FillRoundedRectangle(D2D1::RoundedRect(menu, 9.0f, 9.0f), panel.Get());
+    target->FillRoundedRectangle(D2D1::RoundedRect(menu, 9.0f, 9.0f), panel);
     target->FillRoundedRectangle(
         D2D1::RoundedRect(D2D1::RectF(kMenuLeft, kMenuTop, kMenuLeft + kMenuWidth, kMenuTop + 47.0f), 9.0f, 9.0f),
-        panelHeader.Get());
+        panelHeader);
     draw_text(target, g_resources.titleFormat.Get(), L"TrSS  /  REAL-TIME LOOK",
-        D2D1::RectF(kMenuLeft + 16.0f, kMenuTop + 11.0f, kMenuLeft + 365.0f, kMenuTop + 42.0f), white.Get());
+        D2D1::RectF(kMenuLeft + 16.0f, kMenuTop + 11.0f, kMenuLeft + 365.0f, kMenuTop + 42.0f), white);
 
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
     const std::wstring toggle = value.enabled ? L"EFFECTS  ON" : L"EFFECTS  OFF";
     draw_text(target, g_resources.smallFormat.Get(), toggle,
         D2D1::RectF(kMenuLeft + 385.0f, kMenuTop + 16.0f, kMenuLeft + 505.0f, kMenuTop + 41.0f),
-        value.enabled ? accent.Get() : muted.Get());
+        value.enabled ? accent : muted);
 
     draw_text(target, g_resources.smallFormat.Get(), L"PRESETS  /  SELECT A LOOK",
-        D2D1::RectF(kMenuLeft + 14.0f, kMenuTop + 48.0f, kMenuLeft + 260.0f, kMenuTop + 65.0f), muted.Get());
+        D2D1::RectF(kMenuLeft + 14.0f, kMenuTop + 48.0f, kMenuLeft + 260.0f, kMenuTop + 65.0f), muted);
     const wchar_t* presetLabels[] = {
         L"Neutral", L"Cinematic", L"Vibrant", L"Clarity", L"Night", L"Film"
     };
@@ -747,20 +744,20 @@ void draw_menu() {
         const auto isActive = _wcsicmp(value.activePreset.c_str(), presetLabels[index]) == 0;
         if (isActive) {
             target->FillRoundedRectangle(
-                D2D1::RoundedRect(D2D1::RectF(left, top, left + 158.0f, top + 25.0f), 4.0f, 4.0f), accent.Get());
+                D2D1::RoundedRect(D2D1::RectF(left, top, left + 158.0f, top + 25.0f), 4.0f, 4.0f), accent);
             draw_text(target, g_resources.buttonFormat.Get(), presetLabels[index],
-                D2D1::RectF(left + 5.0f, top + 2.0f, left + 153.0f, top + 23.0f), panel.Get());
+                D2D1::RectF(left + 5.0f, top + 2.0f, left + 153.0f, top + 23.0f), panel);
         } else {
             target->FillRoundedRectangle(
-                D2D1::RoundedRect(D2D1::RectF(left, top, left + 158.0f, top + 25.0f), 4.0f, 4.0f), button.Get());
+                D2D1::RoundedRect(D2D1::RectF(left, top, left + 158.0f, top + 25.0f), 4.0f, 4.0f), button);
             draw_text(target, g_resources.buttonFormat.Get(), presetLabels[index],
-                D2D1::RectF(left + 5.0f, top + 2.0f, left + 153.0f, top + 23.0f), white.Get());
+                D2D1::RectF(left + 5.0f, top + 2.0f, left + 153.0f, top + 23.0f), white);
         }
     }
 
     draw_text(target, g_resources.smallFormat.Get(),
         L"POST-PROCESSING  /  CHANGES PREVIEW ON THE LIVE FRAME",
-        D2D1::RectF(kMenuLeft + 14.0f, kMenuTop + 115.0f, kMenuLeft + 500.0f, kMenuTop + 132.0f), muted.Get());
+        D2D1::RectF(kMenuLeft + 14.0f, kMenuTop + 115.0f, kMenuLeft + 500.0f, kMenuTop + 132.0f), muted);
 
     for (int index = 0; index < kSliderCount; ++index) {
         const auto& slider = kSliders[static_cast<std::size_t>(index)];
@@ -769,41 +766,41 @@ void draw_menu() {
         const float current = read_slider_value(value, slider);
         const float fraction = clamp_float((current - slider.minimum) / (slider.maximum - slider.minimum), 0.0f, 1.0f);
         draw_text(target, g_resources.textFormat.Get(), slider.label,
-            D2D1::RectF(kMenuLeft + 16.0f, top + 2.0f, kMenuLeft + 210.0f, top + 25.0f), white.Get());
+            D2D1::RectF(kMenuLeft + 16.0f, top + 2.0f, kMenuLeft + 210.0f, top + 25.0f), white);
         const float trackLeft = kMenuLeft + static_cast<float>(kSliderTrackLeft);
         const float trackRight = kMenuLeft + static_cast<float>(kSliderTrackRight);
         target->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(trackLeft, top + 10.0f, trackRight, top + 19.0f), 3.0f, 3.0f),
-            sliderBack.Get());
+            sliderBack);
         target->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(trackLeft, top + 10.0f, trackLeft + (trackRight - trackLeft) * fraction, top + 19.0f), 3.0f, 3.0f),
-            accent.Get());
+            accent);
         target->FillEllipse(D2D1::Ellipse(
-            D2D1::Point2F(trackLeft + (trackRight - trackLeft) * fraction, top + 14.5f), 5.3f, 5.3f), white.Get());
+            D2D1::Point2F(trackLeft + (trackRight - trackLeft) * fraction, top + 14.5f), 5.3f, 5.3f), white);
         wchar_t number[40]{};
         swprintf_s(number, slider.format, static_cast<double>(current));
         draw_text(target, g_resources.smallFormat.Get(), number,
-            D2D1::RectF(kMenuLeft + 427.0f, top + 1.0f, kMenuLeft + 506.0f, top + 25.0f), muted.Get());
+            D2D1::RectF(kMenuLeft + 427.0f, top + 1.0f, kMenuLeft + 506.0f, top + 25.0f), muted);
     }
 
     const float footerY = kMenuTop + kMenuHeight - 48.0f;
     draw_text(target, g_resources.smallFormat.Get(), L"Ctrl + Alt + Page Up  /  close menu",
-        D2D1::RectF(kMenuLeft + 15.0f, footerY - 20.0f, kMenuLeft + 490.0f, footerY - 3.0f), muted.Get());
+        D2D1::RectF(kMenuLeft + 15.0f, footerY - 20.0f, kMenuLeft + 490.0f, footerY - 3.0f), muted);
     const wchar_t* buttons[] = {L"Save preset", L"Load preset", value.enabled ? L"Disable effects" : L"Enable effects"};
     const float widths[] = {152.0f, 152.0f, 174.0f};
     float buttonX = kMenuLeft + 12.0f;
     for (int index = 0; index < 3; ++index) {
         target->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(buttonX, footerY, buttonX + widths[index] - 6.0f, footerY + 30.0f), 4.0f, 4.0f),
-            button.Get());
+            button);
         draw_text(target, g_resources.buttonFormat.Get(), buttons[index],
-            D2D1::RectF(buttonX + 5.0f, footerY + 3.0f, buttonX + widths[index] - 11.0f, footerY + 27.0f), white.Get());
+            D2D1::RectF(buttonX + 5.0f, footerY + 3.0f, buttonX + widths[index] - 11.0f, footerY + 27.0f), white);
         buttonX += widths[index];
     }
     draw_text(target, g_resources.smallFormat.Get(),
         L"First target: Direct3D 11 / DXGI. Neural upscaling needs compatible weights and real depth/motion.",
         D2D1::RectF(kMenuLeft + 14.0f, kMenuTop + kMenuHeight - 15.0f, kMenuLeft + 505.0f, kMenuTop + kMenuHeight + 5.0f),
-        muted.Get());
+        muted);
     target->EndDraw();
 }
 
@@ -837,7 +834,7 @@ void render_frame(IDXGISwapChain* swapChain) {
         }
     }
 
-    HookGameWindow(swapChain);
+    hook_game_window(g_gameWindow);
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
     if (value.enabled) {
@@ -1113,11 +1110,8 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID) {
         g_configPath = join_path(g_runtimeDirectory, kConfigName);
         g_presetDirectory = join_path(g_runtimeDirectory, kPresetFolder);
     } else if (reason == DLL_PROCESS_DETACH) {
-        if (g_gameWindow && g_previousWndProc && IsWindow(g_gameWindow)) {
-            SetWindowLongPtrW(g_gameWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_previousWndProc));
-        }
-        reset_render_resources();
-        if (g_realDxgi) FreeLibrary(g_realDxgi);
+        // Do not call Direct3D, window, or loader APIs from DllMain during process
+        // detach: Windows may already hold the loader lock and the process is exiting.
     }
     return TRUE;
 }
