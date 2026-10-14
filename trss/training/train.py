@@ -560,6 +560,21 @@ def main() -> int:
             if saved_run_config.get("motion_scale_px") != args.motion_scale_px:
                 parser.error("resume checkpoint uses a different motion scale.")
 
+            # These settings alter the sample batches, crop distribution, or
+            # arithmetic used by future optimizer steps. Mixing them mid-run
+            # makes epoch-to-epoch comparisons less trustworthy.
+            resume_settings = (
+                ("patch_size_low_resolution", args.patch_size, "patch size"),
+                ("batch_size", args.batch_size, "batch size"),
+                ("amp_bfloat16", args.amp, "BF16 autocast setting"),
+            )
+            for key, current_value, label in resume_settings:
+                if key in saved_run_config and saved_run_config[key] != current_value:
+                    parser.error(
+                        f"resume checkpoint uses a different {label}; pass the "
+                        "original setting to continue this run consistently."
+                    )
+
         if "optimizer_state_dict" in checkpoint:
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         else:
