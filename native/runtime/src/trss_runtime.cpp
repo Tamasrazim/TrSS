@@ -196,7 +196,7 @@ void ensure_runtime_paths() {
     std::call_once(g_pathsOnce, [] {
         g_runtimeDirectory = module_directory();
         g_configPath = join_path(g_runtimeDirectory, kConfigName);
-        g_presetDirectory = join_path(join_path(g_runtimeDirectory, L"TrSS"), PRESET_FOLDER);
+        g_presetDirectory = join_path(g_runtimeDirectory, kPresetFolder);
     });
 }
 
