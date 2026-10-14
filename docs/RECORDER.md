@@ -1,31 +1,53 @@
-# TrSS Data Recorder
+# TrSS Game Library
 
-TrSS Data Recorder is a small, opt-in Windows desktop app for collecting short, lossless visual samples and basic graphics-hardware labels from people who volunteer to help with TrSS research.
+TrSS Game Library is a Windows game launcher and opt-in data collection tool for TrSS research. It scans known game stores and common install folders, displays one card per detected executable using the icon embedded in that executable, and launches games when the card is clicked.
 
-It is designed to be handed to testers who are not developers. It provides a preview before recording, clear consent steps, a compact capture duration, a shareable ZIP, a frame manifest, a hardware report, and SHA-256 checksums.
+## Library discovery
 
-## What it records
+On launch, the library looks for installed Steam games using Steam's library manifests, Epic Games installs using Epic's local item manifests, game-like uninstall registry entries, and common game directories. Use **Add folder** to scan a selected library directory. **Scan all drives** performs an optional deeper scan of fixed drives; it can be slow on large disks and can be cancelled by closing the app. The index and extracted icons are cached under the local Windows profile. Nothing is uploaded.
 
-- A screen crop matching the client area of one selected application window, saved as sequential RGB PNG images. The chosen window must remain active; recording stops if focus changes.
-- Actual elapsed timestamps for each saved frame and the requested capture rate.
-- The game/application label supplied by the participant, the capture size, the frame count, skipped capture slots, and whether the session completed.
-- The operating-system version, CPU model, available graphics-adapter names and driver versions, and total installed RAM when available.
+The launcher cannot identify every game perfectly. Some store-managed, encrypted, Microsoft Store, anti-cheat, or launcher-dependent titles may require manual folder selection or may not start correctly from their extracted executable. Steam and Epic manifest entries try to use the respective store's launch URI where available.
 
-It does **not** record audio or the microphone, read clipboard contents, enumerate running processes, save the selected window title, collect usernames, hostnames, IP addresses or device serial numbers, attach to a game's process, or send data anywhere. The recorder has no upload function. The participant receives a local ZIP they can inspect and choose to send.
+## Live on-screen telemetry
 
-The selected window's pixels can still contain private information or third-party content visible inside that window. Participants must preview the capture, disable notifications, remove private information, and only share material they have permission to capture and share.
+When a game is launched, the library minimizes and shows a small always-on-top, click-through overlay. It displays the metrics available from Windows on that machine:
 
-## Important research limitation
+- System CPU use and the selected game process CPU use.
+- System memory use and the selected game's working-set memory.
+- Per-process GPU 3D utilization and dedicated GPU memory, when the Windows GPU performance counters expose them.
 
-A window screenshot is not the same thing as a renderer capture. This utility collects visible color frames for visual review and compatibility research. It does not obtain real depth buffers, motion vectors, reprojected history, or a matched high-resolution ground-truth render.
+**Game FPS and frametime are not available yet.** Accurate per-game FPS requires a native per-present ETW reader. The overlay displays a clear unavailable state rather than making an estimate from the monitor refresh rate, screenshot rate, or GPU load. Some exclusive-fullscreen games may also prevent an ordinary desktop overlay from appearing.
 
-**A recorder ZIP alone is not a ready-to-train TrSS supervised dataset.** The current first-party training pipeline requires aligned low-resolution/reference pairs and real auxiliary buffers under the contracts in [TRAINING.md](TRAINING.md). Never synthesize missing depth or motion data and label it as captured truth. A native capture path that safely obtains the required render buffers is a separate engineering task.
+## Start an unlimited-duration capture
 
-## Run from source
+1. Run TrSS Game Library and scan your stores or game folders.
+2. Check both permission and research-collection confirmations at the bottom of the window. Only collect content you are allowed to capture and share.
+3. Click a game card to launch that title. Wait until the game's own window is open and focused.
+4. Use **Ctrl + Alt + F8** to start collection. The selected capture rate (1, 2, 5, or 10 screenshots per second) applies to lossless PNG screenshots; performance metrics are sampled about once per second. There is no timer or fixed frame-count limit. The only automatic stops are focus loss, a capture error, or very low free disk space.
+5. Use **Ctrl + Alt + F8** to stop and package the session, or **Ctrl + Alt + F10** to stop immediately. Use **Ctrl + Alt + F9** to bring the library back. Keep the game focused while collecting; losing focus stops the screenshot session so other windows are not recorded.
+6. Inspect the ZIP and README before sharing it with the project maintainer. The collector does not upload the data.
 
-Requirements: Windows 10/11, Python 3.10 or newer, and a visible application window. Borderless-windowed mode is recommended; exclusive-fullscreen games may produce black screenshots.
+## What a capture bundle contains
 
-From the repository directory, in PowerShell:
+| File | Meaning |
+| --- | --- |
+| metadata.json | Game label, duration, requested capture rate, count, stop reason, consent flags and privacy facts. |
+| system.json | Operating-system, CPU/GPU driver labels, and installed memory when available. |
+| sequence.jsonl | Frame index, measured elapsed timestamp, session ID and relative PNG path. |
+| frames/frame-XXXXXXXX.png | Lossless RGB screenshots from the active game window. |
+| performance.jsonl | Timestamped CPU, game-memory, system-memory and available per-process GPU counters. |
+| SHA256SUMS.txt | SHA-256 hashes of all other files in the bundle. |
+| README.txt | Human-readable contents, privacy details and limitations. |
+
+The recorder does not save the absolute game installation path or raw window title in the bundle. It never records audio, microphone input, clipboard contents, hostname, account name, IP address or device serial numbers. The game window itself can still display private messages, account details or third-party content, so preview the title and screen before collecting and sharing.
+
+## Important model-training limitation
+
+These bundles do not contain real depth buffers, motion vectors, reprojected temporal history or matched high-resolution reference renders. A screen capture and an FPS log are not a paired neural-rendering dataset. TrSS must not fabricate missing training buffers or label a simple screenshot as ground truth.
+
+## Install from source
+
+Requires Windows 10/11, Python 3.10+ with Tkinter enabled, and a writable local data folder:
 
 ~~~powershell
 py -3 -m venv .venv
@@ -35,59 +57,8 @@ python -m pip install -e .
 trss-recorder
 ~~~
 
-You can also run **python run_recorder.py** from the repository directory after installing the project.
+To run the old single-window capture utility directly, use **trss-window-recorder**. The new game library is the recommended participant interface.
 
-## Participant instructions
+## Portable Windows build
 
-1. Open the target game/application and use borderless-windowed mode where possible.
-2. Open TrSS Data Recorder. Select the target application window, enter the game/application name, and optionally add a neutral scene label such as **outdoor-driving** or **interior-pan**.
-3. Select **Preview**. Confirm the preview contains only the intended application and no private information.
-4. Choose 5, 10, 15, or 30 frames per second and a 5, 10, 15, or 30 second duration. Short, focused samples are preferred.
-5. Choose an output folder. Check both permission and sharing confirmations only if they are true for your situation.
-6. Select **Start capture**. The recorder minimizes and brings the selected window forward. Keep that application active throughout the sample. If another window takes focus, recording stops and the usable partial sample is packaged with an interruption reason. Audio is not recorded.
-7. To stop early, press **Ctrl + Alt + F10**. The app returns when recording and ZIP verification finish.
-8. Review the generated ZIP and its **README.txt** before sending it to the project maintainer. Send it through the channel the maintainer explicitly provides; the recorder itself will not upload it.
-
-The recorder cannot verify ownership or permission for captured content. Checking the consent boxes records the participant's confirmation only.
-
-## Files in the ZIP
-
-Each bundle contains a single named session folder with:
-
-| File | Purpose |
-| --- | --- |
-| **metadata.json** | Settings, start/end times, frame counts, elapsed timing, consent version, and privacy statements. |
-| **system.json** | A limited OS/CPU/GPU-driver/RAM profile. |
-| **sequence.jsonl** | One manifest row per frame with the frame number, measured timestamp, scene/session ID, and relative color path. |
-| **frames/frame-XXXXXX.png** | Lossless captured color frame. |
-| **SHA256SUMS.txt** | SHA-256 hashes of the other files, useful for detecting accidental changes. |
-| **README.txt** | Plain-language contents, limitations, and privacy notes. |
-
-The **sequence.jsonl** file uses TrSS's existing color-sequence manifest contract. Since the recorder does not capture depth or motion, those fields remain absent rather than being fabricated. Models that require those buffers will not run from this data alone.
-
-## Build a portable Windows executable
-
-The repository includes a Windows GitHub Actions workflow to package the app with PyInstaller. Run **Build TrSS Data Recorder** from the Actions tab to create a temporary build artifact. A tag named **recorder-v...** also publishes the compiled executable and its SHA-256 file as a GitHub Release.
-
-To build locally on Windows:
-
-~~~powershell
-python -m pip install -e ".[test]"
-python -m pip install pyinstaller
-pytest -q
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name TrSS-Data-Recorder --collect-all PIL run_recorder.py
-~~~
-
-The executable will be written to **dist\TrSS-Data-Recorder.exe**. Build and test it on a real Windows machine before distributing it widely; screenshot behavior varies by game, graphics mode, Windows build, and driver.
-
-## Troubleshooting
-
-**Preview is black or fails.** Switch the application to borderless-windowed mode, make sure it is not minimized, refresh the window list, and preview again. The app must become the foreground window for the preview to proceed. Protected video surfaces and some exclusive-fullscreen paths may not be capturable.
-
-**Recording stops after a resize.** Keep the selected application's render size fixed during a session. The recorder stops if the frame dimensions change so the manifest does not mix resolutions.
-
-**Few frames were saved or the observed FPS is low.** Capture cost depends on resolution and image complexity. Use a lower frame rate or shorter sample. The metadata reports the actual saved timestamps and skipped schedule slots; it does not pretend the requested rate was achieved.
-
-**Packaging fails because of disk space or access.** Choose a writable folder with enough free space. The uncompressed session folder is kept if ZIP creation fails so already captured frames can be recovered manually.
-
-**The app does not launch.** Rebuild from a supported Windows Python installation. If running source, make sure the repository was installed with **python -m pip install -e .**.
+The repository workflow builds a single-file Windows executable and a SHA-256 checksum. Open the GitHub Actions page and select **Build TrSS Game Library** to download the build artifact. A version tag named **game-library-v...** publishes the executable as a GitHub Release. The build is generated in CI; it still needs real-machine validation across different Windows versions, graphics drivers, game launchers and fullscreen modes.
