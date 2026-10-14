@@ -14,8 +14,9 @@ pytest.importorskip("onnxruntime")
 pytest.importorskip("openvino")
 
 from trss.training.export_onnx import export_checkpoint_to_onnx
-from trss.training.infer_onnx import run_onnx_frame
-from trss.training.model import MODEL_FORMAT, TrSSTemporalSR
+from trss.training.infer_onnx import _prepare_inputs, run_onnx_frame
+from trss.training.manifest import load_manifest
+from trss.training.model import MODEL_FORMAT, TrSSTemporalSR, compose_prediction
 
 
 def _make_manifest(root):
@@ -54,6 +55,16 @@ def test_openvino_runs_exported_graph_from_manifest_and_saves_png(tmp_path):
     artifact = tmp_path / "composed.onnx"
     export_checkpoint_to_onnx(checkpoint_path=checkpoint, output_path=artifact)
     manifest = _make_manifest(tmp_path)
+    manifest_row = load_manifest(manifest)[0]
+    prepared_inputs, _, target_rgb = _prepare_inputs(manifest_row, motion_scale_px=64.0)
+    with torch.inference_mode():
+        expected_float = compose_prediction(
+            model(torch.from_numpy(prepared_inputs["features"])),
+            torch.from_numpy(prepared_inputs["low_res_rgb"]),
+            torch.from_numpy(prepared_inputs["history_rgb"]),
+            torch.from_numpy(prepared_inputs["history_valid"]),
+        )[0].cpu().numpy()
+    expected_pixels = np.rint(np.clip(expected_float.transpose(1, 2, 0), 0.0, 1.0) * 255.0).astype(np.uint8)
     output = tmp_path / "render.png"
 
     report = run_onnx_frame(
@@ -72,11 +83,21 @@ def test_openvino_runs_exported_graph_from_manifest_and_saves_png(tmp_path):
     assert report["input_size"] == [24, 16]
     assert report["output_size"] == [48, 32]
     assert report["mean_inference_ms"] >= 0
+    assert report["output_encode_write_ms"] >= 0
+    assert len(report["output_sha256"]) == 64
+    assert set(report["target_metrics"]) >= {"mae", "rmse", "psnr_db", "domain"}
+    assert report["target_metrics"]["mae"] >= 0
+    assert report["target_metrics"]["rmse"] >= 0
     assert output.is_file()
     assert output.with_name("render.png.json").is_file()
     with Image.open(output) as image:
         assert image.size == (48, 32)
         assert image.mode == "RGB"
+        actual_pixels = np.asarray(image, dtype=np.int16)
+    # OpenVINO should preserve the exported PyTorch graph to within output rounding.
+    difference = np.abs(actual_pixels - expected_pixels.astype(np.int16))
+    assert int(difference.max(initial=0)) <= 1
+    assert report["target_metrics"]["domain"] == "normalized display-encoded RGB target pixels"
 
 
 def test_openvino_runner_rejects_overwrite_without_force(tmp_path):

@@ -84,7 +84,7 @@ def _read_mask(path: Path, height: int, width: int) -> np.ndarray:
     return np.ascontiguousarray(mask)
 
 
-def _prepare_inputs(row: dict[str, Any], *, motion_scale_px: float) -> tuple[dict[str, np.ndarray], tuple[int, int]]:
+def _prepare_inputs(\n    row: dict[str, Any], *, motion_scale_px: float\n) -> tuple[dict[str, np.ndarray], tuple[int, int], np.ndarray]:
     """Create the same feature ordering and exact 2x area reductions as training."""
     current = _read_rgb(Path(row["low_res"]))
     height, width = current.shape[-2:]
@@ -140,7 +140,7 @@ def _prepare_inputs(row: dict[str, Any], *, motion_scale_px: float) -> tuple[dic
         "history_rgb": np.ascontiguousarray(history[None]),
         "history_valid": np.ascontiguousarray(history_valid[None]),
     }
-    return inputs, (width, height)
+    return inputs, (width, height), target
 
 
 def run_onnx_frame(
@@ -202,7 +202,7 @@ def run_onnx_frame(
         raise ValueError("Output and report paths must not overwrite any frame input or target.")
 
     preprocess_started = perf_counter()
-    inputs, input_size = _prepare_inputs(row, motion_scale_px=motion_scale_px)
+    inputs, input_size, target_rgb = _prepare_inputs(row, motion_scale_px=motion_scale_px)
     preprocess_ms = (perf_counter() - preprocess_started) * 1000.0
 
     try:
@@ -269,12 +269,27 @@ def run_onnx_frame(
         pixels = np.rint(
             np.clip(result[0].transpose(1, 2, 0), 0.0, 1.0) * 255.0
         ).astype(np.uint8)
+        encode_started = perf_counter()
         Image.fromarray(pixels, mode="RGB").save(temp_image, format="PNG")
+        output_encode_write_ms = (perf_counter() - encode_started) * 1000.0
+
+        # Measure the saved prediction against the paired high-resolution target.
+        # This scores only one offline frame and is not a perceptual-quality verdict.
+        target_error = result[0].astype(np.float64) - target_rgb.astype(np.float64)
+        target_mae = float(np.mean(np.abs(target_error)))
+        target_mse = float(np.mean(np.square(target_error)))
+        target_metrics = {
+            "mae": target_mae,
+            "rmse": math.sqrt(target_mse),
+            "psnr_db": -10.0 * math.log10(max(target_mse, 1e-12)),
+            "domain": "normalized display-encoded RGB target pixels",
+        }
 
         report: dict[str, Any] = {
             "format": "trss-onnx-frame-run-v1",
             "model": str(model_file),
             "model_sha256": _sha256(model_file),
+            "output_sha256": _sha256(temp_image),
             "manifest": str(manifest_file),
             "manifest_row_index": row_index,
             "manifest_line": row["line"],
@@ -291,7 +306,8 @@ def run_onnx_frame(
             "mean_inference_ms": float(np.mean(samples)),
             "min_inference_ms": float(np.min(samples)),
             "max_inference_ms": float(np.max(samples)),
-            "output_encode_write_ms": None,
+            "output_encode_write_ms": output_encode_write_ms,
+            "target_metrics": target_metrics,
             "elapsed_seconds_before_report_write": perf_counter() - started,
             "live_capture_used": False,
             "note": (
@@ -367,6 +383,7 @@ def main() -> int:
         "output_size": report["output_size"],
         "compile_ms": report["compile_ms"],
         "mean_inference_ms": report["mean_inference_ms"],
+        "target_metrics": report["target_metrics"],
         "live_capture_used": report["live_capture_used"],
     }, indent=2, allow_nan=False))
     return 0
