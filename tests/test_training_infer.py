@@ -40,6 +40,7 @@ def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_p
     np.save(tmp_path / "motion.npy", np.zeros((4, 6, 2), dtype=np.float32))
     output = tmp_path / "out" / "render.png"
     report = tmp_path / "logs" / "frame.json"
+    telemetry = tmp_path / "logs" / "model-performance.jsonl"
 
     info = run_frame(
         checkpoint_path=checkpoint,
@@ -51,6 +52,7 @@ def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_p
         warmup=0,
         iterations=1,
         report_path=report,
+        telemetry_jsonl_path=telemetry,
     )
 
     with Image.open(output) as rendered:
@@ -67,6 +69,16 @@ def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_p
     assert info["mean_model_composition_ms"] >= 0
     assert info["output_encode_write_ms"] >= 0
     assert info["benchmark_call_elapsed_ms"] >= info["mean_model_composition_ms"]
+    assert info["schema_version"] == "trss.model-performance/1.0"
+    assert len(info["iterations_measured"]) == 1
+    assert info["iterations_measured"][0]["model_inference_ms"] >= 0
+    assert info["iterations_measured"][0]["composition_ms"] >= 0
+    assert info["timing_ms"]["model_plus_composition"]["p95"] >= 0
+    assert info["theoretical_60_fps_budget_ms"] == pytest.approx(1000 / 60)
+    assert "peak_allocated_during_benchmark_bytes" in info["device_memory"]
     assert "not in-game FPS" in info["note"]
     assert "mean_frame_path_ms" not in info
     assert json.loads(report.read_text(encoding="utf-8"))["format"] == MODEL_FORMAT
+    telemetry_rows = telemetry.read_text(encoding="utf-8").splitlines()
+    assert len(telemetry_rows) == 1
+    assert json.loads(telemetry_rows[0])["schema_version"] == "trss.model-performance/1.0"
