@@ -25,6 +25,7 @@ trss-audit-dataset = "trss.training.audit_dataset:main"
 trss-review-dataset = "trss.training.review_dataset:main"
 trss-recorder = "trss.game_hub:main"
 trss-runtime-installer = "trss.runtime_installer:main"
+trss-compare-performance = "trss.performance_compare:main"
 trss-window-recorder = "trss.recorder:main"
 
 [tool.setuptools.packages.find]
