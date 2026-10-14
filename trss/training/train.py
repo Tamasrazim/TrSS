@@ -282,18 +282,26 @@ def _run_epoch(
 def _check_split_overlap(
     train_set: TrSSFrameDataset, validation_set: TrSSFrameDataset | None
 ) -> None:
-    """Reject exact target-frame reuse across training and validation manifests."""
+    """Reject exact input/target frame reuse across training and validation splits."""
     if validation_set is None:
         return
-    train_targets = {row["target"] for row in train_set.rows}
-    validation_targets = {row["target"] for row in validation_set.rows}
-    overlap = train_targets.intersection(validation_targets)
-    if overlap:
-        example = str(sorted(overlap)[0])
-        raise ValueError(
-            "Training and validation manifests reuse at least one exact target frame. "
-            f"Move it to only one split; example: {example}"
-        )
+
+    # Reusing the same input with a different target still leaks the scene/frame
+    # into validation. Compare resolved paths from the manifest loader so aliases
+    # such as relative paths and absolute paths resolve to the same file.
+    for field, label in (
+        ("target", "target"),
+        ("low_res", "low-resolution input"),
+    ):
+        train_frames = {row[field] for row in train_set.rows}
+        validation_frames = {row[field] for row in validation_set.rows}
+        overlap = train_frames.intersection(validation_frames)
+        if overlap:
+            example = str(sorted(overlap)[0])
+            raise ValueError(
+                "Training and validation manifests reuse at least one exact "
+                f"{label} frame. Move it to only one split; example: {example}"
+            )
 
 
 def _preflight_dataset(
