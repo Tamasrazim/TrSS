@@ -1571,6 +1571,7 @@ class GameHubApp:
         self.cards: list[GameCard] = []
         self.selected_game: GameEntry | None = None
         self.active_capture: CaptureSession | None = None
+        self.pending_review_session: CaptureSession | None = None
         self.capture_lock = threading.RLock()
         self.capture_rate = 2
         self.monitor_stop = threading.Event()
@@ -2049,6 +2050,9 @@ class GameHubApp:
                     session.performance_rows.append(dict(metrics))
 
     def start_capture(self) -> None:
+        if self.pending_review_session is not None:
+            self.set_status("Finish the graphics review and bundle packaging before starting another capture.")
+            return
         with self.capture_lock:
             if self.active_capture:
                 self.set_status("A capture is already running. Press the capture hotkey again to stop.")
@@ -2493,10 +2497,12 @@ class GameHubApp:
             with session.lock:
                 session.closing = True
                 metrics_rows = list(session.performance_rows)
+            self.pending_review_session = session
             if self.active_capture is session:
                 self.active_capture = None
 
         if not session.frame_rows:
+            self.pending_review_session = None
             shutil.rmtree(session.folder, ignore_errors=True)
             self.events.put(("capture_error", session.error or "No frames were captured. Focus the game before starting."))
             return
@@ -2793,6 +2799,7 @@ class GameHubApp:
                         }
                         payload.review_event.set()
                 elif kind == "capture_complete":
+                    self.pending_review_session = None
                     self.overlay.update_metrics(self.last_metrics, self.selected_game, False)
                     if payload["matrix_row_exact"]:
                         completeness = "EXACT VERIFIED MATRIX ROW"
@@ -2823,6 +2830,7 @@ class GameHubApp:
                             f"matrix: {payload['matrix_csv_path']} · ZIP: {payload['zip_path']}"
                         )
                 elif kind == "capture_error":
+                    self.pending_review_session = None
                     self.overlay.update_metrics(self.last_metrics, self.selected_game, False)
                     self.set_status(str(payload))
                 self._update_scroll_region()
@@ -2832,6 +2840,13 @@ class GameHubApp:
             self.root.after(120, self._drain_events)
 
     def on_close(self) -> None:
+        if self.pending_review_session is not None:
+            messagebox.showwarning(
+                APP_NAME,
+                "TrSS is reviewing the game's graphics profile or finalizing the dataset. "
+                "Finish that step before closing so the capture and matrix row are not lost.",
+            )
+            return
         if self.active_capture:
             if not messagebox.askyesno(
                 APP_NAME,
