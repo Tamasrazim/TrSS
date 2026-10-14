@@ -95,6 +95,8 @@ constexpr std::array<SliderDefinition, kSliderCount> kSliders{{
 std::mutex g_settingsMutex;
 std::mutex g_patchMutex;
 std::mutex g_renderMutex;
+std::once_flag g_pathsOnce;
+std::once_flag g_dxgiOnce;
 Settings g_settings;
 bool g_settingsLoaded = false;
 std::atomic_bool g_menuVisible{false};
@@ -191,10 +193,11 @@ std::wstring join_path(const std::wstring& left, const std::wstring& right) {
 }
 
 void ensure_runtime_paths() {
-    if (!g_runtimeDirectory.empty()) return;
-    g_runtimeDirectory = module_directory();
-    g_configPath = join_path(g_runtimeDirectory, kConfigName);
-    g_presetDirectory = join_path(join_path(g_runtimeDirectory, L"TrSS"), PRESET_FOLDER);
+    std::call_once(g_pathsOnce, [] {
+        g_runtimeDirectory = module_directory();
+        g_configPath = join_path(g_runtimeDirectory, kConfigName);
+        g_presetDirectory = join_path(join_path(g_runtimeDirectory, L"TrSS"), PRESET_FOLDER);
+    });
 }
 
 std::wstring config_value(const wchar_t* section, const wchar_t* key, const wchar_t* fallback) {
@@ -1011,25 +1014,29 @@ void patch_factory(void* factoryInterface, REFIID requestedIid) {
 }
 
 void ensure_real_dxgi() {
-    if (g_realDxgi) return;
-    wchar_t systemDirectory[MAX_PATH]{};
-    const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) return;
-    std::wstring path(systemDirectory, length);
-    path = join_path(path, L"dxgi.dll");
-    g_realDxgi = LoadLibraryW(path.c_str());
-    if (!g_realDxgi) return;
-    g_realCreateFactory = reinterpret_cast<CreateFactoryFn>(GetProcAddress(g_realDxgi, "CreateDXGIFactory"));
-    g_realCreateFactory1 = reinterpret_cast<CreateFactoryFn>(GetProcAddress(g_realDxgi, "CreateDXGIFactory1"));
-    g_realCreateFactory2 = reinterpret_cast<CreateFactory2Fn>(GetProcAddress(g_realDxgi, "CreateDXGIFactory2"));
-    g_realDeclareRemovalSupport = reinterpret_cast<DeclareRemovalFn>(
-        GetProcAddress(g_realDxgi, "DXGIDeclareAdapterRemovalSupport"));
-    g_realDisableVBlankVirtualization = reinterpret_cast<DisableVBlankFn>(
-        GetProcAddress(g_realDxgi, "DXGIDisableVBlankVirtualization"));
-    g_realGetDebugInterface = reinterpret_cast<GetDebugInterfaceFn>(
-        GetProcAddress(g_realDxgi, "DXGIGetDebugInterface"));
-    g_realGetDebugInterface1 = reinterpret_cast<GetDebugInterface1Fn>(
-        GetProcAddress(g_realDxgi, "DXGIGetDebugInterface1"));
+    std::call_once(g_dxgiOnce, [] {
+        wchar_t systemDirectory[MAX_PATH]{};
+        const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) return;
+        std::wstring path(systemDirectory, length);
+        path = join_path(path, L"dxgi.dll");
+        g_realDxgi = LoadLibraryW(path.c_str());
+        if (!g_realDxgi) return;
+        g_realCreateFactory = reinterpret_cast<CreateFactoryFn>(
+            GetProcAddress(g_realDxgi, "CreateDXGIFactory"));
+        g_realCreateFactory1 = reinterpret_cast<CreateFactoryFn>(
+            GetProcAddress(g_realDxgi, "CreateDXGIFactory1"));
+        g_realCreateFactory2 = reinterpret_cast<CreateFactory2Fn>(
+            GetProcAddress(g_realDxgi, "CreateDXGIFactory2"));
+        g_realDeclareRemovalSupport = reinterpret_cast<DeclareRemovalFn>(
+            GetProcAddress(g_realDxgi, "DXGIDeclareAdapterRemovalSupport"));
+        g_realDisableVBlankVirtualization = reinterpret_cast<DisableVBlankFn>(
+            GetProcAddress(g_realDxgi, "DXGIDisableVBlankVirtualization"));
+        g_realGetDebugInterface = reinterpret_cast<GetDebugInterfaceFn>(
+            GetProcAddress(g_realDxgi, "DXGIGetDebugInterface"));
+        g_realGetDebugInterface1 = reinterpret_cast<GetDebugInterface1Fn>(
+            GetProcAddress(g_realDxgi, "DXGIGetDebugInterface1"));
+    });
 }
 
 HRESULT finish_factory_call(HRESULT hr, REFIID iid, void** factory) {
