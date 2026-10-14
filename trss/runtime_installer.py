@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -91,6 +92,34 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def pe_architecture(path: str | Path) -> str:
+    """Read PE headers without executing the selected game or DLL."""
+    file_path = Path(path)
+    try:
+        with file_path.open("rb") as stream:
+            dos_header = stream.read(64)
+            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                raise RuntimeInstallError(f"{file_path.name} is not a valid Windows PE file.")
+            offset = struct.unpack_from("<I", dos_header, 0x3C)[0]
+            if offset > 64 * 1024 * 1024:
+                raise RuntimeInstallError(f"{file_path.name} has an invalid PE header offset.")
+            stream.seek(offset)
+            header = stream.read(26)
+    except OSError as exc:
+        raise RuntimeInstallError(f"Cannot read {file_path}: {exc}") from exc
+    if len(header) < 26 or header[:4] != b"PE\\0\\0":
+        raise RuntimeInstallError(f"{file_path.name} has an invalid PE signature.")
+    machine = struct.unpack_from("<H", header, 4)[0]
+    optional_magic = struct.unpack_from("<H", header, 24)[0]
+    if machine == 0x8664 and optional_magic == 0x20B:
+        return "x64"
+    if machine == 0x14C and optional_magic == 0x10B:
+        return "x86"
+    if machine == 0xAA64 and optional_magic == 0x20B:
+        return "arm64"
+    return f"unsupported (machine=0x{machine:04X}, optional=0x{optional_magic:04X})"
+
+
 def find_runtime_dll() -> Path | None:
     """Find the CI-built native DLL or the one bundled into the installer."""
     roots: list[Path] = []
@@ -139,6 +168,12 @@ def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dic
         raise RuntimeInstallError("Choose an existing game .exe file.")
     if not dll.is_file() or dll.name.casefold() != RUNTIME_DLL_NAME:
         raise RuntimeInstallError("The compiled first-party dxgi.dll runtime was not found.")
+    if pe_architecture(exe) != "x64":
+        raise RuntimeInstallError(
+            "This runtime is currently x64-only. The selected game executable is not x64."
+        )
+    if pe_architecture(dll) != "x64":
+        raise RuntimeInstallError("The compiled TrSS dxgi.dll is not an x64 Windows library.")
 
     game_dir = exe.parent
     runtime_target = game_dir / RUNTIME_DLL_NAME
@@ -257,6 +292,10 @@ def uninstall_runtime(game_executable: str | Path) -> dict[str, Any]:
         raise RuntimeInstallError(f"The installation manifest cannot be verified: {exc}") from exc
     if manifest.get("product") != "TrSS Runtime":
         raise RuntimeInstallError("The manifest does not identify a TrSS runtime installation.")
+    if str(manifest.get("game_executable_name", "")).casefold() != exe.name.casefold():
+        raise RuntimeInstallError(
+            "The installation marker belongs to a different executable in this folder."
+        )
 
     if runtime_target.exists():
         expected = str(manifest.get("runtime_sha256", ""))
