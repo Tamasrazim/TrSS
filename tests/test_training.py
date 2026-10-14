@@ -122,6 +122,23 @@ def test_split_overlap_rejects_the_same_reference_frame(tmp_path):
         training._check_split_overlap(train_set, validation_set)
 
 
+def test_split_overlap_rejects_shared_input_even_with_a_different_target(tmp_path):
+    train_manifest = _make_dataset_files(tmp_path)
+    _write_rgb(tmp_path / "target-other.png", 8, 12, 140)
+
+    train_row = json.loads(train_manifest.read_text(encoding="utf-8"))
+    validation_row = {**train_row, "target": "target-other.png"}
+    validation_manifest = tmp_path / "validation.jsonl"
+    validation_manifest.write_text(
+        json.dumps(validation_row) + "\n", encoding="utf-8"
+    )
+
+    train_set = TrSSFrameDataset(train_manifest)
+    validation_set = TrSSFrameDataset(validation_manifest)
+    with pytest.raises(ValueError, match="reuse at least one exact low-resolution input frame"):
+        training._check_split_overlap(train_set, validation_set)
+
+
 def test_preflight_validates_dataset_without_gpu_or_output_directory(
     tmp_path, monkeypatch, capsys
 ):
