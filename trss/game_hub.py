@@ -78,6 +78,17 @@ SKIP_GAME_LABELS = (
     "windows sdk", "nvidia physx", "openal installer", "uninstall",
     "update service", "crash reporter",
 )
+NON_GAME_APP_TERMS = (
+    "microsoft visual c++", "directx", "windows sdk", "nvidia", "amd software",
+    "intel driver", "intel graphics", "realtek", "logitech", "corsair", "razer",
+    "steelseries", "msi center", "armoury crate", "asus", "gigabyte", "dragon center",
+    "adobe", "google chrome", "microsoft edge", "mozilla firefox", "discord",
+    "spotify", "obs studio", "vlc media", "7-zip", "winrar", "python", "node.js",
+    "git version", "visual studio", "visual studio code", "microsoft 365", "office",
+    "onedrive", "powershell", "winget", "teams", "zoom workplace", "anydesk",
+    "openvpn", "tailscale", "battle.net", "epic games launcher", "steam",
+    "universal c runtime", "webview2", "update service", "support assistant",
+)
 STEAM_PATHS = (
     Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam",
     Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Steam",
@@ -428,6 +439,7 @@ def _registry_install_locations() -> list[tuple[str, Path]]:
                 location = Path(install_dir)
                 if (
                     _is_reasonable_game_title(display_name)
+                    and not any(term in display_name.casefold() for term in NON_GAME_APP_TERMS)
                     and location.is_dir()
                     and len(display_name.strip()) >= 3
                 ):
@@ -1009,7 +1021,17 @@ class PerformanceReader:
                     delta_wall = now - previous[2]
                     if delta_wall > 0:
                         # Process CPU can exceed 100% when several logical cores are busy.
-                        cpu_time = round(max(0.0, min(100.0, 100.0 * delta_ticks / 10_000_000 / delta_wall)), 1)
+                        logical_cpus = max(1, os.cpu_count() or 1)
+                        cpu_time = round(
+                            max(
+                                0.0,
+                                min(
+                                    100.0,
+                                    100.0 * delta_ticks / 10_000_000 / delta_wall / logical_cpus,
+                                ),
+                            ),
+                            1,
+                        )
 
             class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
                 _fields_ = [
@@ -1366,6 +1388,8 @@ class PerformanceOverlay:
             pass
 
     def show(self) -> None:
+        if self.visible:
+            return
         self.window.deiconify()
         self.window.lift()
         try:
@@ -1376,6 +1400,8 @@ class PerformanceOverlay:
         self.move_to_corner()
 
     def hide(self) -> None:
+        if not self.visible:
+            return
         self.window.withdraw()
         self.visible = False
 
@@ -1437,6 +1463,7 @@ class GameHubApp:
         self.rights_consent_var = tk.BooleanVar(value=False)
         self.search_filter = "All"
         self.scan_thread: threading.Thread | None = None
+        self.hotkey_state: dict[int, bool] = {}
         self.overlay = PerformanceOverlay(self)
 
         self._configure_styles()
@@ -1658,7 +1685,12 @@ class GameHubApp:
     def _animate_ambient(self) -> None:
         if self.closing:
             return
-        next_color = _blend_hex(self.ambient_current, self.ambient_target, 0.18)
+        next_color = _blend_hex(self.ambient_current, self.ambient_target, 0.22)
+        if next_color == self.ambient_target or sum(
+            abs(int(next_color[i:i + 2], 16) - int(self.ambient_target[i:i + 2], 16))
+            for i in (1, 3, 5)
+        ) <= 3:
+            next_color = self.ambient_target
         self.ambient_current = next_color
         ambient = _blend_hex(BACKGROUND, next_color, 0.105)
         try:
@@ -1688,7 +1720,14 @@ class GameHubApp:
         for game in games:
             if not _path_exists(game.exe_path):
                 continue
-            token = hashlib.sha256(os.path.normcase(game.exe_path).encode("utf-8", "replace")).hexdigest()[:24]
+            try:
+                stat = Path(game.exe_path).stat()
+                revision = f"{stat.st_mtime_ns}:{stat.st_size}"
+            except OSError:
+                revision = "missing"
+            token = hashlib.sha256(
+                f"{os.path.normcase(game.exe_path)}:{revision}".encode("utf-8", "replace")
+            ).hexdigest()[:24]
             game.icon_path = ExeIconExtractor.save_icon(game.exe_path, ICON_CACHE / f"{token}.png")
 
     def scan_installed_games(self, silent: bool = False) -> None:
@@ -2121,15 +2160,18 @@ class GameHubApp:
                 if os.name == "nt":
                     user32 = ctypes.windll.user32
                     ctrl_alt = bool(user32.GetAsyncKeyState(0x11) & down) and bool(user32.GetAsyncKeyState(0x12) & down)
-                    if ctrl_alt and (user32.GetAsyncKeyState(0x77) & down):  # F8: toggle
-                        self._wait_hotkey_release(0x77)
-                        self.toggle_capture()
-                    elif ctrl_alt and (user32.GetAsyncKeyState(0x78) & down):  # F9: show library
-                        self._wait_hotkey_release(0x78)
-                        self.show_library()
-                    elif ctrl_alt and (user32.GetAsyncKeyState(0x79) & down):  # F10: stop
-                        self._wait_hotkey_release(0x79)
-                        self.stop_capture("hotkey_stop")
+                    for vk in (0x77, 0x78, 0x79):
+                        is_down = bool(user32.GetAsyncKeyState(vk) & down)
+                        just_pressed = is_down and not self.hotkey_state.get(vk, False)
+                        self.hotkey_state[vk] = is_down
+                        if not (ctrl_alt and just_pressed):
+                            continue
+                        if vk == 0x77:  # F8: toggle capture without repeat while held
+                            self.toggle_capture()
+                        elif vk == 0x78:  # F9: restore the library
+                            self.show_library()
+                        elif vk == 0x79:  # F10: stop capture
+                            self.stop_capture("hotkey_stop")
                 # The OSD is hidden when the library is visible so it never covers its controls.
                 if self.root.state() == "normal" and self.root.winfo_viewable():
                     self.overlay.hide()
