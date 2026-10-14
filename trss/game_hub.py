@@ -2209,10 +2209,6 @@ class GameHubApp:
             canvas.yview_scroll(-int(event.delta / 120), "units")
             return "break"
 
-        # The main library already has a wheel binding; temporarily route wheel
-        # input to this modal review so all settings remain reachable.
-        dialog.bind_all("<MouseWheel>", scroll_review)
-
         field_vars: dict[str, tk.StringVar] = {}
         source_labels: dict[str, tk.Label] = {}
         field_rows: dict[str, tk.Entry] = {}
@@ -2391,12 +2387,20 @@ class GameHubApp:
                 text="Save verified profile" if verification_var.get() else "Save unverified profile"
             ),
         )
+        # Bind the scroll gesture to every review control. Returning "break"
+        # prevents the library's existing global wheel handler from taking over,
+        # and no global binding needs to be removed/restored afterwards.
+        def bind_review_wheel(widget: tk.Widget) -> None:
+            try:
+                widget.bind("<MouseWheel>", scroll_review, add="+")
+            except tk.TclError:
+                pass
+            for child in widget.winfo_children():
+                bind_review_wheel(child)
+
+        bind_review_wheel(dialog)
         dialog.protocol("WM_DELETE_WINDOW", save_profile)
         dialog.wait_window()
-        try:
-            dialog.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
 
         # If window destruction occurs unusually, do not strand the capture worker.
         if not session.review_event.is_set():
