@@ -62,7 +62,8 @@ MUTED = "#9aa4b2"
 ACCENT = "#dce2ea"
 SKIP_DIR_NAMES = {
     "$recycle.bin", "system volume information", "windows", "appdata",
-    "common files", "windowsapps", "windows defender", "internet explorer",
+    "program files", "program files (x86)", "common files", "windowsapps",
+    "windows defender", "internet explorer",
     "microsoft shared", "package cache", "installer", "softwaredistribution",
     "winsxs", "temp", "tmp", "node_modules", "__pycache__", ".git",
     "crashdumps", "shadercache", "webcache", "logs",
@@ -516,6 +517,37 @@ def _scan_game_root(
     return games
 
 
+def _looks_like_game_install(executable: Path) -> bool:
+    """Reject generic tools found on a full-drive scan unless their folder looks game-like."""
+    parts = [part.casefold() for part in executable.parts]
+    known_roots = {
+        "games", "game library", "steamlibrary", "steamapps", "epic games",
+        "epicgames", "xboxgames", "gog games", "ea games", "ubisoft game launcher",
+        "riot games", "battle.net", "blizzard entertainment", "rockstar games",
+    }
+    if any(part in known_roots for part in parts):
+        return True
+
+    game_markers = {"binaries", "win64", "win32", "paks", "content", "engine"}
+    if any(part in game_markers for part in parts):
+        return True
+
+    stem = executable.stem
+    for ancestor in list(executable.parents)[:5]:
+        for folder in ("Content", "Paks", "Engine", "Data", "assets", "Assets"):
+            try:
+                if (ancestor / folder).is_dir():
+                    return True
+            except OSError:
+                pass
+        try:
+            if (ancestor / f"{stem}_Data").is_dir():
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def _scan_all_fixed_drives(
     stop_event: threading.Event,
     progress: Any,
@@ -566,7 +598,7 @@ def _scan_all_fixed_drives(
                     size = path.stat().st_size
                 except OSError:
                     continue
-                if size < 3 * 1024 * 1024:
+                if size < 3 * 1024 * 1024 or not _looks_like_game_install(path):
                     continue
                 exe_seen.add(key)
                 parent_name = path.parent.name
@@ -1154,6 +1186,7 @@ class CaptureSession:
     frame_rows: list[dict[str, Any]]
     performance_rows: list[dict[str, Any]]
     lock: threading.Lock
+    captured_bytes: int = 0
     closing: bool = False
     status: str = "recording"
     error: str | None = None
@@ -2068,6 +2101,7 @@ class GameHubApp:
                 frame_name = f"frame-{len(session.frame_rows):08d}.png"
                 frame_path = session.folder / "frames" / frame_name
                 frame.save(frame_path, format="PNG", optimize=False)
+                session.captured_bytes += frame_path.stat().st_size
                 session.frame_rows.append(
                     make_sequence_row(
                         frame_id=len(session.frame_rows),
@@ -2096,11 +2130,7 @@ class GameHubApp:
                     free = shutil.disk_usage(session.folder).free
                     # ZIP creation temporarily needs room for another copy of the bundle.
                     # Stop early enough to preserve both the PNGs and the finished archive.
-                    captured_bytes = sum(
-                        row_path.stat().st_size
-                        for row_path in (session.folder / "frames").glob("*.png")
-                    )
-                    if free < captured_bytes + 512 * 1024 * 1024:
+                    if free < session.captured_bytes + 512 * 1024 * 1024:
                         session.status = "interrupted"
                         session.error = (
                             "Capture stopped to preserve enough free space to package the "
