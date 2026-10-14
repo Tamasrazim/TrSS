@@ -246,3 +246,28 @@ python -m trss.training.evaluate_spatial --checkpoint logs\ets2-spatial\checkpoi
 Open `logs\ets2-spatial-evaluation\index.html`. Each sample shows the enlarged low-resolution input, bicubic baseline, TrSS spatial prediction, and captured target. The accompanying `evaluation-report.json` records the checkpoint and manifest SHA-256 hashes, evaluation device, per-frame MAE/RMSE/PSNR, the aggregate scores, and whether the model beat bicubic interpolation. Unless `--max-frames` is supplied, scores cover the entire validation manifest; `--max-previews` only limits how many examples are shown in the gallery.
 
 Start with a few modest recordings and a short training run before trying long sessions. A result that does not beat bicubic is still useful feedback: inspect the comparison gallery and metrics instead of assuming the learned output is better. Keep the first experiment RGB-only until a valid, renderer-specific path for depth, motion, and temporal history is available.
+
+
+## One-command first experiment using the games already installed
+
+You do not need to install another AAA game. Start with **Euro Truck Simulator 2** because it is easy to capture steady motion across distinct stretches of road. Use OBS or another recorder you already have and save **four separate short clips** with the same resolution and graphics settings, ideally around 30–60 seconds each. Pick distinct road sections so one clip can be held out for validation. MKV is fine.
+
+Install the optional video decoder and training runtime:
+
+~~~powershell
+python -m pip install -e ".[training,video,test]"
+~~~
+
+Then run the full local import → train → evaluate workflow in one command. Replace the example paths with your actual recordings:
+
+~~~powershell
+python -m trss.training.gameplay_experiment "D:\Captures\ETS2-road-a.mkv" "D:\Captures\ETS2-road-b.mkv" "D:\Captures\ETS2-road-c.mkv" "D:\Captures\ETS2-road-d.mkv" --output-dir logs\ets2-first-run --game "Euro Truck Simulator 2" --device xpu --epochs 5 --sample-every 30 --max-frames-per-video 120 --validation-fraction 0.25
+~~~
+
+At 60 recorded frames per second, the sample-every setting of 30 samples up to two frames per second. The 120-frame cap therefore takes up to about one minute from each clip; shorten the cap for a faster smoke run. With four clips and validation fraction 0.25, complete recordings stay isolated between training and validation.
+
+Open logs\ets2-first-run\experiment-report.json first, then logs\ets2-first-run\evaluation\index.html. The gallery compares an enlarged input, bicubic interpolation, the learned TrSS output, and the captured target. Check whether the metrics beat bicubic before claiming improvement. The files remain local; the experiment folder can be large because it contains extracted PNG pairs and checkpoints.
+
+Use Alan Wake later to test dark scenes and intense light transitions, then The Crew 2 for faster motion. Do not use TrSS process-injection, memory-reading, or anti-cheat bypass approaches with PUBG; the video-only path needs nothing running inside the game.
+
+This is the **RGB-only spatial baseline**, not the ten-channel temporal renderer. It learns how to reconstruct a downsampled version of captured video frames. The footage does not expose the game's original low-resolution render, depth, motion vectors, or temporal reprojection data, so this first experiment cannot prove live-game compatibility or Arc B580 real-time performance.
