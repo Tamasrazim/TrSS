@@ -67,6 +67,18 @@ python -m trss.training.train --train-manifest data/trss-pilot/train.jsonl --val
 
 This produces `training-report.json`, `checkpoint-last.pt`, and `checkpoint-best.pt`. Once the smoke test works, actual model development still requires a legally usable dataset captured from a suitable renderer and subsequent validation on the intended hardware.
 
+### Evaluate a trained checkpoint against bicubic interpolation
+
+After training, run a held-out validation manifest through the saved checkpoint. TrSS writes native-size prediction PNGs, a four-panel comparison for every evaluated frame, aggregate and per-scene MAE/RMSE/PSNR, the checkpoint SHA-256, and a local HTML gallery. By default it evaluates the entire manifest using overlapping tiles to limit accelerator memory:
+
+```powershell
+python -m trss.training.evaluate_checkpoint --checkpoint logs/trss-pilot-training-smoke/checkpoint-best.pt --manifest data/trss-pilot/validation.jsonl --output-dir logs/trss-pilot-evaluation --device cpu --tile-size 64 --tile-overlap 8
+```
+
+Open `logs/trss-pilot-evaluation/index.html` to review the nearest-neighbour input, bicubic baseline, TrSS prediction, and target reference. The companion `evaluation-report.json` records the exact checkpoint hash and model settings, per-frame and per-scene metrics, evaluation device, tile settings, and whether this checkpoint beat bicubic interpolation on aggregate MAE and PSNR. Use a distinct output folder unless `--force` is explicitly passed. For a quick development loop, `--max-frames 6` selects evenly spaced frames, but that report explicitly identifies itself as a subset rather than a complete validation score.
+
+MAE, RMSE, and PSNR are computed over normalized display-encoded RGB values—not linear-light radiance, perceptual preference, or whole-game frame timings. A metric improvement only says that the checkpoint matches this target set better than bicubic interpolation under the recorded settings. Synthetic-pilot results remain synthetic and must not be presented as proof of real-game generalization or Arc B580 performance.
+
 ### Build scene-separated train and validation manifests
 
 Put a `scene_id` on every row in one source JSONL manifest. Use the same ID for every frame from a complete scene or capture sequence, and distinct IDs for sequences that must not cross the training/validation boundary. The splitter validates that the referenced files exist, refuses exact low-resolution input or target files labelled as different scenes, preserves additional metadata fields, and rewrites file paths so the generated manifests still resolve from their output folder.
