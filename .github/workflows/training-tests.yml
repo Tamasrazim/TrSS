@@ -20,14 +20,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install CPU PyTorch and TrSS test dependencies
+      - name: Install PyTorch, ONNX, OpenVINO, and test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e ".[test,export]"
+          python -m pip install -e ".[test,export,gpu]"
 
       - name: Check Python syntax
         run: python -m compileall -q trss tests
 
       - name: Test model shape, composition, gradients, and dataset contracts
-        run: python -m pytest tests/test_training.py tests/test_training_manifest.py tests/test_training_infer.py tests/test_split_manifest.py tests/test_dataset_audit.py tests/test_review_dataset.py tests/test_generate_scene_dataset.py tests/test_prepare_pilot.py tests/test_evaluate_checkpoint.py tests/test_export_onnx.py
+        run: python -m pytest tests/test_training.py tests/test_training_manifest.py tests/test_training_infer.py tests/test_split_manifest.py tests/test_dataset_audit.py tests/test_review_dataset.py tests/test_generate_scene_dataset.py tests/test_prepare_pilot.py tests/test_evaluate_checkpoint.py tests/test_export_onnx.py tests/test_infer_onnx.py

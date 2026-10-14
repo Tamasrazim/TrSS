@@ -28,6 +28,7 @@ trss-generate-scene-dataset = "trss.training.generate_scene_dataset:main"
 trss-prepare-pilot = "trss.training.prepare_pilot:main"
 trss-evaluate-checkpoint = "trss.training.evaluate_checkpoint:main"
 trss-export-onnx = "trss.training.export_onnx:main"
+trss-run-onnx-frame = "trss.training.infer_onnx:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]

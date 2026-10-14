@@ -94,6 +94,16 @@ The equivalent installed command is `trss-export-onnx`. The ONNX file is checked
 
 The graph is designed to be imported by a compatible ONNX consumer, including an OpenVINO workflow where the installed operator set supports the exported graph. It is not a complete live renderer or a game hook: the application must supply real, aligned depth and motion data and a history frame already reprojected into the current view. The `features` channels 0–2 must agree with `low_res_rgb`, and the history channels/mask within `features` must agree with the separate full-resolution tensors. Export success and matching CPU tests do not prove visual quality or Arc B580 performance.
 
+### Run the exported graph through OpenVINO
+
+The composed ONNX graph can now be exercised through TrSS's OpenVINO device path using one record from the same paired-frame manifest. This command rebuilds the ten-channel feature tensor with the documented depth, normalized motion, reprojected history, and validity-mask rules, compiles the graph on a selected device, and writes a PNG plus a timing report.
+
+```powershell
+python -m trss.training.infer_onnx --model models/trss-composed.onnx --manifest data/trss-pilot/validation.jsonl --row 0 --output work/trss-onnx-frame.png --device ARC --report logs/trss-onnx-frame.json
+```
+
+Use `--device CPU` only as an explicit offline-debug option. The default `ARC` alias requires OpenVINO to identify exactly one Intel Arc adapter; an ambiguous or missing Arc GPU is an error, not a silent CPU fallback. This tests the model artifact and preprocessing path on the selected OpenVINO device, but is still offline manifest inference and does not acquire frames from a running game. The report separates model compilation and inference timing from preprocessing and output writing; none of these values is in-game FPS.
+
 ### Build scene-separated train and validation manifests
 
 Put a `scene_id` on every row in one source JSONL manifest. Use the same ID for every frame from a complete scene or capture sequence, and distinct IDs for sequences that must not cross the training/validation boundary. The splitter validates that the referenced files exist, refuses exact low-resolution input or target files labelled as different scenes, preserves additional metadata fields, and rewrites file paths so the generated manifests still resolve from their output folder.
