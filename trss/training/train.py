@@ -315,6 +315,11 @@ def _preflight_dataset(
                 )
 
         _, height, width = sample["low_res"].shape
+        if height < 2 or width < 2:
+            raise ValueError(
+                f"{name} sample {index + 1} is {width}x{height}; each input dimension "
+                "must be at least 2 pixels."
+            )
         size_key = f"{width}x{height}"
         dimensions[size_key] = dimensions.get(size_key, 0) + 1
         if not bool((sample["history_valid"] > 0).any()):

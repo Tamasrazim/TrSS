@@ -122,7 +122,9 @@ def test_split_overlap_rejects_the_same_reference_frame(tmp_path):
         training._check_split_overlap(train_set, validation_set)
 
 
-def test_preflight_validates_dataset_without_gpu_or_output_directory(tmp_path, monkeypatch):
+def test_preflight_validates_dataset_without_gpu_or_output_directory(
+    tmp_path, monkeypatch, capsys
+):
     manifest = _make_dataset_files(tmp_path)
     monkeypatch.setattr(
         "sys.argv",
@@ -137,6 +139,11 @@ def test_preflight_validates_dataset_without_gpu_or_output_directory(tmp_path, m
 
     assert training.main() == 0
     # Preflight is read-only: it should not demand an XPU or create model files.
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["preflight"] == "passed"
+    assert summary["training"]["frames"] == 1
+    assert summary["training"]["low_resolution_dimensions"] == {"6x4": 1}
+    assert summary["training"]["all_tensors_finite"] is True
 
 
 def test_validation_reports_neural_and_bicubic_image_metrics(tmp_path):
