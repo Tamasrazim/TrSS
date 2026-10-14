@@ -82,7 +82,7 @@ def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
         starts.append(starts[-1] + stride)
     # A zero-overlap final one-pixel remainder cannot be passed through the model.
     # Shift that last tile one pixel left, yielding a safe 1-pixel blend at the seam.
-    if length - (starts[-1] + tile_size * 0) == 1 and overlap == 0:
+    if length - starts[-1] == 1 and overlap == 0:
         starts[-1] = length - 2
     return starts
 
