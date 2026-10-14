@@ -341,9 +341,9 @@ bool is_file(const fs::path& path) {
     return fs::is_regular_file(path, error);
 }
 
-bool is_directory(const fs::path& path) {
+bool is_directory_path(const fs::path& path) {
     std::error_code error;
-    return fs::is_directory(path, error);
+    return fs::is_directory_path(path, error);
 }
 
 bool game_name_is_blocked(const std::wstring& name) {
@@ -390,7 +390,7 @@ fs::path resolve_display_icon(std::wstring value) {
 }
 
 fs::path find_game_executable(const fs::path& root, const std::wstring& gameName) {
-    if (!is_directory(root)) return {};
+    if (!is_directory_path(root)) return {};
     const std::wstring wanted = normalized_token(gameName);
     fs::path best;
     long long bestScore = std::numeric_limits<long long>::min();
@@ -398,7 +398,7 @@ fs::path find_game_executable(const fs::path& root, const std::wstring& gameName
     fs::recursive_directory_iterator it(root,
         fs::directory_options::skip_permission_denied, error), end;
     for (; !error && it != end; it.increment(error)) {
-        if (it.depth() >= 2 && it->is_directory(error)) {
+        if (it.depth() >= 2 && it->is_directory_path(error)) {
             it.disable_recursion_pending();
             continue;
         }
@@ -423,7 +423,7 @@ std::vector<fs::path> steam_install_roots() {
     const auto add = [&roots](const std::wstring& raw) {
         if (raw.empty()) return;
         fs::path path(expand_environment(raw));
-        if (is_directory(path) && std::find(roots.begin(), roots.end(), path) == roots.end()) {
+        if (is_directory_path(path) && std::find(roots.begin(), roots.end(), path) == roots.end()) {
             roots.push_back(path);
         }
     };
@@ -438,7 +438,7 @@ std::vector<fs::path> steam_install_roots() {
 }
 
 void add_game(std::vector<GameEntry>& games, GameEntry candidate) {
-    if (candidate.name.empty() || candidate.launchTarget.empty() || !is_directory(candidate.installPath)) return;
+    if (candidate.name.empty() || candidate.launchTarget.empty() || !is_directory_path(candidate.installPath)) return;
     std::error_code error;
     const fs::path canonical = fs::weakly_canonical(candidate.installPath, error);
     if (!error && !canonical.empty()) candidate.installPath = canonical;
@@ -463,7 +463,7 @@ void scan_steam_games(std::vector<GameEntry>& games) {
             std::wstring libraryPath = (*it)[1].str();
             replace_all(libraryPath, L"\\\\", L"\\");
             fs::path path(libraryPath);
-            if (is_directory(path) && std::find(libraries.begin(), libraries.end(), path) == libraries.end()) {
+            if (is_directory_path(path) && std::find(libraries.begin(), libraries.end(), path) == libraries.end()) {
                 libraries.push_back(path);
             }
         }
@@ -476,7 +476,7 @@ void scan_steam_games(std::vector<GameEntry>& games) {
     };
     for (const auto& library : libraries) {
         const fs::path apps = library / L"steamapps";
-        if (!is_directory(apps)) continue;
+        if (!is_directory_path(apps)) continue;
         std::error_code error;
         for (fs::directory_iterator it(apps, fs::directory_options::skip_permission_denied, error), end;
             !error && it != end; it.increment(error)) {
@@ -493,7 +493,7 @@ void scan_steam_games(std::vector<GameEntry>& games) {
             }
             if (ignoredGame) continue;
             const fs::path installPath = apps / L"common" / installDir;
-            if (!is_directory(installPath)) continue;
+            if (!is_directory_path(installPath)) continue;
             add_game(games, GameEntry{
                 name, L"Steam", installPath, L"steam://run/" + appId, true
             });
@@ -504,7 +504,7 @@ void scan_steam_games(std::vector<GameEntry>& games) {
 void scan_epic_games(std::vector<GameEntry>& games) {
     const fs::path manifests = fs::path(environment_value(L"ProgramData", L"C:\\ProgramData")) /
         L"Epic" / L"EpicGamesLauncher" / L"Data" / L"Manifests";
-    if (!is_directory(manifests)) return;
+    if (!is_directory_path(manifests)) return;
     std::error_code error;
     for (fs::directory_iterator it(manifests, fs::directory_options::skip_permission_denied, error), end;
         !error && it != end; it.increment(error)) {
@@ -515,7 +515,7 @@ void scan_epic_games(std::vector<GameEntry>& games) {
         const std::wstring appName = extract_json_value(text, L"AppName");
         if (name.empty() || install.empty() || appName.empty() || game_name_is_blocked(name)) continue;
         const fs::path root(install);
-        if (!is_directory(root)) continue;
+        if (!is_directory_path(root)) continue;
         const std::wstring uri = L"com.epicgames.launcher://apps/" + appName + L"?action=launch&silent=true";
         add_game(games, GameEntry{name, L"Epic Games", root, uri, true});
     }
@@ -523,11 +523,11 @@ void scan_epic_games(std::vector<GameEntry>& games) {
 
 void scan_common_library_folder(std::vector<GameEntry>& games,
     const fs::path& libraryRoot, const std::wstring& source) {
-    if (!is_directory(libraryRoot)) return;
+    if (!is_directory_path(libraryRoot)) return;
     std::error_code error;
     for (fs::directory_iterator it(libraryRoot, fs::directory_options::skip_permission_denied, error), end;
         !error && it != end; it.increment(error)) {
-        if (!it->is_directory(error)) continue;
+        if (!it->is_directory_path(error)) continue;
         const fs::path root = it->path();
         const std::wstring name = root.filename().wstring();
         if (game_name_is_blocked(name)) continue;
@@ -559,8 +559,8 @@ void scan_registry_games(std::vector<GameEntry>& games) {
                 if (name.empty() || game_name_is_blocked(name)) continue;
                 const fs::path icon = resolve_display_icon(displayIcon);
                 fs::path installPath = expand_environment(installValue);
-                if (!is_directory(installPath) && !icon.empty()) installPath = icon.parent_path();
-                if (!is_directory(installPath)) continue;
+                if (!is_directory_path(installPath) && !icon.empty()) installPath = icon.parent_path();
+                if (!is_directory_path(installPath)) continue;
                 fs::path exe = icon;
                 if (exe.empty()) exe = find_game_executable(installPath, name);
                 if (exe.empty() || !is_file(exe) || executable_is_support_tool(exe)) continue;
@@ -1477,13 +1477,13 @@ void create_controls(HWND window) {
     create_child(window, g_activeGame, L"STATIC", L"No running game detected",
         SS_LEFT | SS_CENTERIMAGE, 0, g_headingFont);
     create_child(window, g_status, L"STATIC", L"Scanning installed games...",
-        SS_LEFT | SS_TOP, 0, g_font);
+        SS_LEFT | SS_LEFT, 0, g_font);
     create_child(window, g_progress, PROGRESS_CLASSW, L"",
         PBS_SMOOTH, 0, g_font);
     SendMessageW(g_progress, PBM_SETRANGE32, 0, 100);
     create_child(window, g_details, L"STATIC",
         L"Only visible RGB pixels are recorded. Depth, motion vectors, and private game buffers are not available from generic desktop capture.",
-        SS_LEFT | SS_TOP, 0, g_font);
+        SS_LEFT | SS_LEFT, 0, g_font);
     create_child(window, g_outputText, L"STATIC", L"",
         SS_LEFT | SS_CENTERIMAGE, 0, g_font);
     create_child(window, g_scanButton, L"BUTTON", L"Scan PC",
