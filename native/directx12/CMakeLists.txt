@@ -61,5 +61,10 @@ add_executable(trss_desktop_capture src/trss_desktop_capture.cpp)
 target_compile_features(trss_desktop_capture PRIVATE cxx_std_17)
 target_compile_options(trss_desktop_capture PRIVATE /W4 /permissive- /EHsc /utf-8)
 target_link_libraries(trss_desktop_capture PRIVATE d3d11 dxgi windowscodecs ole32)
-set_target_properties(trss_desktop_capture PROPERTIES CXX_EXTENSIONS OFF)
+set_target_properties(trss_desktop_capture PROPERTIES
+  CXX_EXTENSIONS OFF
+  # Keep the small capture utility self-contained instead of requiring users to
+  # install a matching MSVC C++ runtime redistributable first.
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
 message(STATUS "TrSS color-only Windows desktop sampler enabled")

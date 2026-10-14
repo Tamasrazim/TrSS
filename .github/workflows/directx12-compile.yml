@@ -43,3 +43,20 @@ jobs:
           for ($i = 0; $i -lt 8; $i++) {
             if ($bytes[$i] -ne $signature[$i]) { throw "PNG self-test signature mismatch." }
           }
+
+      - name: Package the standalone desktop capture utility
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:GITHUB_WORKSPACE "dist/trss-capture-win-x64"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item ".\build\directx12\Release\trss_desktop_capture.exe" (Join-Path $package "trss_desktop_capture.exe")
+          Copy-Item "docs\DESKTOP-CAPTURE.md" (Join-Path $package "README-DESKTOP-CAPTURE.md")
+          Compress-Archive -Path (Join-Path $package "*") -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "trss-capture-win-x64.zip") -Force
+
+      - name: Publish standalone capture utility as a downloadable workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trss-desktop-capture-win-x64
+          path: trss-capture-win-x64.zip
+          if-no-files-found: error
+          retention-days: 14
