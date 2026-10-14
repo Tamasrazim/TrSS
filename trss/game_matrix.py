@@ -96,7 +96,7 @@ _FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "render_resolution": ("renderresolution", "internalresolution", "upscalerresolution"),
     "refresh_rate_hz": ("refreshrate", "refreshratehz", "displayrefreshrate", "monitorrefresh"),
     "target_fps": ("fpslimit", "framelimit", "maxfps", "targetfps", "maxframerate", "frameratecap"),
-    "vsync": ("vsync", "verticalsync", "enablevsync"),
+    "vsync": ("vsync", "verticalsync", "enablevsync", "usevsync", "busevsync"),
     "hdr": ("hdr", "enablehdr", "hdrenabled", "hdrmode"),
     "upscaler": ("upscaler", "upscaling", "upscalingmethod", "upscalertechnology", "dlss", "fsr", "xess", "tsr"),
     "upscaler_mode": ("upscalermode", "upscalingmode", "dlssmode", "fsrmode", "xessmode", "tsrquality"),
@@ -184,6 +184,9 @@ def _pairs_from_xml(root: ET.Element) -> Iterable[tuple[str, Any]]:
         attributes = {str(k).casefold(): v for k, v in element.attrib.items()}
         if "name" in attributes and ("value" in attributes or "setting" in attributes):
             yield str(attributes["name"]), attributes.get("value", attributes.get("setting"))
+        elif "value" in attributes:
+            # Configs often encode a setting as <VSync value="1" />.
+            yield element.tag.rsplit("}", 1)[-1], attributes["value"]
         for name, value in element.attrib.items():
             yield str(name), value
 
@@ -238,6 +241,14 @@ def parse_graphics_config_file(path: str | Path) -> dict[str, Any]:
             height = value
             continue
         field = _ALIAS_TO_FIELD.get(normalized)
+        if field is None:
+            # Unreal-style keys often add a type/scalability prefix, e.g.
+            # sg.TextureQuality, r.MotionBlur, or bUseVSync.
+            for prefix in ("sg", "b", "r", "i", "f", "t"):
+                if normalized.startswith(prefix):
+                    field = _ALIAS_TO_FIELD.get(normalized[len(prefix):])
+                    if field:
+                        break
         if field:
             values[field] = value
             sources[field] = "local_game_config"
