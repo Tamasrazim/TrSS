@@ -74,6 +74,8 @@ def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
     """Cover an axis from end to end, including its far edge."""
     if length <= tile_size:
         return [0]
+    if overlap == 0:
+        return list(range(0, length, tile_size))
     stride = tile_size - 2 * overlap
     if stride < 1:
         raise ValueError("tile overlap must be less than half the tile size.")
@@ -360,23 +362,22 @@ def evaluate_checkpoint(
     manifest_file = Path(manifest_path).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
 
+    if output == output.parent or output.name in ("", ".", ".."):
+        raise ValueError("output_dir must name a dedicated output folder.")
+    if output.exists() and not force:
+        raise FileExistsError(f"Output path already exists: {output}. Pass --force to replace it.")
+    if output.exists() and not output.is_dir():
+        raise NotADirectoryError(f"Output path must be a directory: {output}")
     if not checkpoint_file.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_file}")
     if not manifest_file.is_file():
         raise FileNotFoundError(f"Manifest does not exist: {manifest_file}")
-    if output == output.parent or output.name in ("", ".", ".."):
-        raise ValueError("output_dir must name a dedicated output folder.")
     if not math.isfinite(motion_scale_px) or motion_scale_px <= 0:
         raise ValueError("motion_scale_px must be finite and greater than zero.")
     if tile_size < 2 or tile_overlap < 0 or tile_overlap * 2 >= tile_size:
         raise ValueError("tile_size must be >= 2 and tile_overlap less than half tile_size.")
     if max_frames is not None and max_frames < 1:
         raise ValueError("max_frames must be at least one.")
-    if output.exists() and not force:
-        raise FileExistsError(f"Output path already exists: {output}. Pass --force to replace it.")
-    if output.exists() and not output.is_dir():
-        raise NotADirectoryError(f"Output path must be a directory: {output}")
-
     output.parent.mkdir(parents=True, exist_ok=True)
     resolved_manifest = manifest_file
     rows = load_manifest(resolved_manifest)
@@ -399,17 +400,12 @@ def evaluate_checkpoint(
     global_acc = _empty_accumulator()
     scene_accumulators: dict[str, dict[str, float]] = {}
     frame_results: list[dict[str, Any]] = []
-    used_source_types: set[str] = set()
     try:
         for sample_number, sample_index in enumerate(selected_indices, start=1):
             manifest_row = rows[sample_index]
             source = metadata.get(int(manifest_row.get("line", 0)), {})
             scene_id = str(source.get("scene_id", "scene-unknown"))
             frame_index = int(source.get("frame_index", sample_index))
-            source_type = source.get("source_type")
-            if isinstance(source_type, str):
-                used_source_types.add(source_type)
-
             sample = dataset[sample_index]
             height, width = sample["low_res"].shape[-2:]
             target = sample["target"].float()
