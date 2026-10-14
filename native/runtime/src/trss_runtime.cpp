@@ -398,7 +398,14 @@ bool load_preset_dialog(HWND owner) {
     value.grain = readFloat(L"Grain", value.grain, 0.0f, 0.08f);
     value.temperature = readFloat(L"Temperature", value.temperature, -0.25f, 0.25f);
     value.chromatic = readFloat(L"Chromatic", value.chromatic, 0.0f, 0.010f);
-    value.activePreset = L"Custom";
+    std::wstring presetPath(path);
+    const auto separator = presetPath.find_last_of(L"\\/");
+    const auto extension = presetPath.find_last_of(L'.');
+    const auto nameStart = separator == std::wstring::npos ? 0 : separator + 1;
+    const auto nameEnd = extension == std::wstring::npos || extension < nameStart
+        ? presetPath.size() : extension;
+    value.activePreset = presetPath.substr(nameStart, nameEnd - nameStart);
+    if (value.activePreset.empty()) value.activePreset = L"Custom";
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         g_settings = value;
