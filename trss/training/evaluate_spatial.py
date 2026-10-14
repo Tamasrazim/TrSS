@@ -96,9 +96,7 @@ img{display:block;width:100%;height:auto;background:#060708;border:1px solid #30
 </style></head><body><main>
 <h1>TrSS spatial checkpoint evaluation</h1>
 <p class="summary">Offline RGB-only 2x reconstruction. The target is the recorded frame; input is derived by downsampling that same frame. This gallery is not a live-game or temporal-rendering test.</p>
-""" + "".join(cards) + "
-</main></body></html>
-"
+""" + "".join(cards) + "\n</main></body></html>\n"
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
