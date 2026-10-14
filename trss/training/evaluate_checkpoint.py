@@ -281,6 +281,7 @@ def _write_gallery(
     root: Path,
     frame_rows: list[dict[str, Any]],
     global_metrics: dict[str, Any],
+    source_type: str,
 ) -> None:
     """Build an offline page for visual inspection of model and baseline outputs."""
     cards: list[str] = []
@@ -303,6 +304,11 @@ def _write_gallery(
         "TrSS beats bicubic on aggregate MAE."
         if global_metrics["mae"] < global_metrics["bicubic_mae"]
         else "TrSS does not beat bicubic on aggregate MAE."
+    )
+    source_notice = (
+        "This synthetic-scene result is not evidence of generalization to a real game."
+        if source_type == "synthetic_controlled_3d_scene"
+        else "These results apply only to the supplied manifest and do not prove game capture or performance."
     )
     document = f"""<!doctype html>
 <html lang="en">
@@ -327,7 +333,7 @@ h1{{margin-bottom:6px}}.notice{{color:#c8c8c8;max-width:1000px;line-height:1.5}}
 <h1>TrSS checkpoint evaluation</h1>
 <p class="notice">Metrics compare normalized display-encoded RGB pixels against the supplied target images.
 They measure this manifest only, not live-game rendering, photorealism, or GPU frame rate.
-{html.escape(direction)}</p>
+{html.escape(direction)} {html.escape(source_notice)}</p>
 <section class="summary">
 <div class="metric">Frames<strong>{global_metrics.get('frames', len(frame_rows))}</strong></div>
 <div class="metric">TrSS MAE<strong>{global_metrics['mae']:.6f}</strong></div>
@@ -525,7 +531,7 @@ def evaluate_checkpoint(
             encoding="utf-8",
             newline="\n",
         )
-        _write_gallery(staging, frame_results, global_metrics)
+        _write_gallery(staging, frame_results, global_metrics, str(report["source_type"]))
 
         if output.exists():
             backup = transaction_root / "previous-output"
