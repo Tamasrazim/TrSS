@@ -107,7 +107,7 @@ def pe_architecture(path: str | Path) -> str:
             header = stream.read(26)
     except OSError as exc:
         raise RuntimeInstallError(f"Cannot read {file_path}: {exc}") from exc
-    if len(header) < 26 or header[:4] != b"PE\\0\\0":
+    if len(header) < 26 or header[:4] != bytes((0x50, 0x45, 0, 0)):
         raise RuntimeInstallError(f"{file_path.name} has an invalid PE signature.")
     machine = struct.unpack_from("<H", header, 4)[0]
     optional_magic = struct.unpack_from("<H", header, 24)[0]
