@@ -655,10 +655,11 @@ class TrSSRecorderApp:
         ttk.Label(
             privacy,
             text=(
-                "Only the selected window's visible client area is captured. Audio, the "
-                "clipboard, running-process lists, host names, account names, and device serials "
-                "are not collected. Use borderless/windowed mode; exclusive-fullscreen capture "
-                "may be black. Disable notifications and remove private information first."
+                "The selected window's screen area is sampled; keep it active while recording. "
+                "Recording stops if another window takes focus. Audio, clipboard, process lists, "
+                "host/account names, and device serials are not collected. Use borderless/windowed "
+                "mode; exclusive-fullscreen capture may be black. Disable notifications and remove "
+                "private information before sharing."
             ),
             style="Card.TLabel",
             wraplength=820,
