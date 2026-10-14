@@ -62,4 +62,11 @@ def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_p
     assert info["history_supplied"] is False
     assert info["measured_iterations"] == 1
     assert len(info["checkpoint_sha256"]) == 64
+    assert info["input_setup_ms"] >= 0
+    assert info["mean_inference_ms"] >= 0
+    assert info["mean_model_composition_ms"] >= 0
+    assert info["output_encode_write_ms"] >= 0
+    assert info["benchmark_call_elapsed_ms"] >= info["mean_model_composition_ms"]
+    assert "not in-game FPS" in info["note"]
+    assert "mean_frame_path_ms" not in info
     assert json.loads(report.read_text(encoding="utf-8"))["format"] == MODEL_FORMAT
