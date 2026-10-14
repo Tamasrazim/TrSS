@@ -8,6 +8,7 @@ are FPS measurements.
 from __future__ import annotations
 
 import ctypes
+from collections import Counter
 from ctypes import wintypes
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -1221,17 +1222,24 @@ def _format_bytes(value: Any) -> str:
 def _hex_rgb(image_path: str | None) -> str:
     try:
         with Image.open(image_path) as image:
-            small = image.convert("RGB").resize((24, 24))
-            colors = small.getcolors(24 * 24) or []
-            if not colors:
+            small = image.convert("RGBA").resize((24, 24), Image.Resampling.LANCZOS)
+            visible: list[tuple[int, int, int]] = []
+            saturated: list[tuple[int, int, int]] = []
+            for red, green, blue, alpha in small.getdata():
+                if alpha < 90:
+                    continue
+                rgb = (red, green, blue)
+                if max(rgb) >= 52:
+                    visible.append(rgb)
+                    if max(rgb) - min(rgb) >= 25:
+                        saturated.append(rgb)
+            # Ignore transparent/black border pixels. Saturated icon colors give a more
+            # faithful ambient glow than the black or grey areas common in EXE icons.
+            palette = saturated or visible
+            if not palette:
                 return "#aeb8c8"
-            color = max(colors, key=lambda item: item[0])[1]
+            color = Counter(palette).most_common(1)[0][0]
             r, g, b = color
-            # Icons often contain transparent/black padding. Lift very dark colors so
-            # the surrounding ambient tint remains visible against the dark UI.
-            high = max(r, g, b)
-            if high < 45:
-                r, g, b = r + 55, g + 55, b + 55
             return f"#{r:02x}{g:02x}{b:02x}"
     except (OSError, ValueError, TypeError):
         return "#aeb8c8"
