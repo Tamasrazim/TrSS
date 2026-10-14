@@ -8,8 +8,10 @@ on:
     paths:
       - "trss/recorder.py"
       - "trss/game_hub.py"
+      - "trss/game_matrix.py"
       - "tests/test_recorder.py"
       - "tests/test_game_hub.py"
+      - "tests/test_game_matrix.py"
       - "pyproject.toml"
       - "run_recorder.py"
       - ".github/workflows/build-recorder.yml"
