@@ -35,7 +35,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Direct3D 12 compute probe | Experimental; HLSL dispatch/readback test only |
 | Native Vulkan/XMX execution path | Experimental; hardware validation remains |
 | Verified neural-rendering model and compatible weights | Not yet bundled or validated |
-| Live game/desktop frame capture and integration | Not implemented |
+| Opt-in visible-window frame capture | Implemented in the Windows recorder; in-game render hooks and auxiliary-buffer extraction remain unimplemented |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
 TrSS is independent research software. The engine must not label a conventional filter or generic super-resolution model as neural rendering.
@@ -51,6 +51,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
 - **Offline temporal sequence runner:** `render-sequence` reads an explicit JSONL manifest, processes recorded frames in order, carries normalized RGB history only across continuous frames, and resets history after camera cuts, scene/resolution changes, gaps, or stale timestamps. Required depth/motion inputs must be real files; after a history reset, a model that needs history requires an explicit `initial_history` seed.
+- **Opt-in TrSS Data Recorder (`trss-recorder`):** a Windows desktop UI captures short lossless PNG sequences from one selected application window, records elapsed timestamps and a limited GPU/driver profile, and creates a local ZIP with a JSONL manifest and SHA-256 checksums. It does not upload, record audio, inspect game memory, or fabricate depth/motion. A screen-capture bundle alone is not a supervised training dataset.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
@@ -77,6 +78,19 @@ python -m pip install -e ".[gpu,test]"
 OpenVINO GPU support also depends on a compatible Intel graphics driver and the installed runtime's GPU plugin.
 
 ## Commands
+
+### Collect an opt-in visual sample (Windows 10/11)
+
+Install TrSS and launch the desktop collector:
+
+```powershell
+python -m pip install -e .
+trss-recorder
+```
+
+Select and preview the target application window, confirm that you have permission to share its visible content, then capture a short sample. The app saves lossless PNG frames, measured timestamps, a limited local hardware/driver profile, a JSONL sequence manifest, and a verified ZIP. It never uploads the bundle. See [the recorder guide](docs/RECORDER.md) for privacy details, limitations, participant instructions, and the portable EXE build.
+
+**Research limitation:** this is visible-window capture, not a game-renderer hook. It does not extract real depth, motion vectors, temporal history, or paired reference renders, so its bundles are suitable for visual review and compatibility research—not standalone supervised-model training.
 
 ### Identify the actual adapter
 
