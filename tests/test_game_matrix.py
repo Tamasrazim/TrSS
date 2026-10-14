@@ -77,7 +77,7 @@ def test_json_reader_recurses_but_only_records_known_setting_names(tmp_path: Pat
 
 
 def test_profile_is_exact_only_when_confirmed_and_every_standard_field_is_filled() -> None:
-    values = {field: "Unknown" for field in STANDARD_SETTINGS}
+    values = {field: "Not supported" for field in STANDARD_SETTINGS}
     values["graphics_api"] = "DirectX 12"
     values["display_resolution"] = "1920x1080"
     row = build_matrix_row(
@@ -124,7 +124,7 @@ def test_profile_with_missing_fields_is_not_marked_exact_even_if_checked() -> No
 
 
 def test_numeric_engine_enum_is_not_mislabelled_as_exact() -> None:
-    values = {field: "Unknown" for field in STANDARD_SETTINGS}
+    values = {field: "Not supported" for field in STANDARD_SETTINGS}
     values["texture_quality"] = "3"
     row = build_matrix_row(
         session_id="enum-session",
@@ -180,7 +180,7 @@ def test_additional_settings_supports_game_specific_fields() -> None:
 
 
 def test_matrix_jsonl_and_csv_are_written_and_session_is_idempotent(tmp_path: Path) -> None:
-    values = {field: "Unknown" for field in STANDARD_SETTINGS}
+    values = {field: "Not supported" for field in STANDARD_SETTINGS}
     row = build_matrix_row(
         session_id="stable-session",
         game_name="Sample Game",
@@ -201,5 +201,5 @@ def test_matrix_jsonl_and_csv_are_written_and_session_is_idempotent(tmp_path: Pa
 
     assert len(stored) == 1
     assert len(csv_rows) == 1
-    assert csv_rows[0]["texture_quality"] == "Unknown"
+    assert csv_rows[0]["texture_quality"] == "Not supported"
     assert csv_rows[0]["matrix_row_exact"] == "True"
