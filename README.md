@@ -18,7 +18,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a one-command pilot workflow that generates controlled 3D data, splits complete scenes, audits train/validation, and builds a review gallery; a CPU integration test then runs one real optimizer epoch and verifies checkpoint creation. The test weights use synthetic scenes only. Actual game capture, representative training data, photorealistic-quality validation, live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled 3D pilot data workflow and an offline checkpoint evaluator that compares trained predictions with bicubic interpolation using per-frame, per-scene, and aggregate MAE/RMSE/PSNR plus visual comparisons. CI trains a tiny CPU smoke model and evaluates its saved checkpoint on held-out synthetic scenes. Actual game capture, representative training data, photorealistic-quality validation, live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -30,6 +30,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Paired-render dataset audit | Checks image/tensor contracts, scene leakage, exact/perceptual duplicates, paired-image consistency metrics, motion clipping, and provenance metadata |
 | Controlled 3D dataset generator | CPU software scene renderer creates matched 1×/2× frames, geometry-derived depth/motion, and visibility-checked reprojected history; synthetic pilot only |
 | One-command pilot workflow | Runs generation, scene-disjoint split, structural audit, and offline pair gallery into one protected output folder |
+| Checkpoint visual-quality evaluation | Tiled held-out inference, full-size predictions, bicubic baseline, per-frame/per-scene MAE/RMSE/PSNR, and offline comparison gallery; synthetic data is labelled explicitly |
 | Offline visual pair-review gallery | Scene-balanced thumbnails, searchable local HTML, source paths, and decode-error report |
 | Offline checkpoint timing breakdown | Separates setup, model, composition, and output writing; not live FPS |
 | Direct3D 9 legacy render-target probe | Experimental; device/clear/readback test only |
