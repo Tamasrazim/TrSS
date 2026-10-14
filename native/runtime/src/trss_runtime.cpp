@@ -145,7 +145,7 @@ struct RuntimeResources {
     ComPtr<ID3D11Device1> device1;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11DeviceContext1> context1;
-    ComPtr<ID3D11DeviceContextState> overlayState;
+    ComPtr<ID3DDeviceContextState> overlayState;
     ComPtr<ID3D11Texture2D> copyTexture;
     ComPtr<ID3D11ShaderResourceView> sourceView;
     ComPtr<ID3D11RenderTargetView> backBufferView;
@@ -579,7 +579,7 @@ bool initialize_render_resources(
 
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     D3D_FEATURE_LEVEL chosen{};
-    if (FAILED(D3D11CreateDeviceContextState(
+    if (FAILED(g_resources.device1->CreateDeviceContextState(
             0, levels, static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
             __uuidof(ID3D11Device), &chosen, &g_resources.overlayState))) return false;
 
@@ -861,10 +861,10 @@ void render_frame(IDXGISwapChain* swapChain) {
     }
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
-    ComPtr<ID3D11DeviceContextState> previousState;
-    const HRESULT switched = g_resources.context1->SwapDeviceContextState(
+    ComPtr<ID3DDeviceContextState> previousState;
+    g_resources.context1->SwapDeviceContextState(
         g_resources.overlayState.Get(), &previousState);
-    if (FAILED(switched) || !previousState) return;
+    if (!previousState) return;
 
     // Save the original frame only after the game's render-target state is isolated.
     if (value.enabled) {
@@ -1103,7 +1103,7 @@ void hook_game_window(HWND window) {
 
 } // namespace trss_runtime
 
-extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory(REFIID iid, void** factory) {
+extern "C" HRESULT WINAPI TrSSCreateDXGIFactory(REFIID iid, void** factory) {
     using namespace trss_runtime;
     load_settings_file();
     ensure_real_dxgi();
@@ -1111,7 +1111,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory(REFIID iid, vo
     return finish_factory_call(g_realCreateFactory(iid, factory), iid, factory);
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory1(REFIID iid, void** factory) {
+extern "C" HRESULT WINAPI TrSSCreateDXGIFactory1(REFIID iid, void** factory) {
     using namespace trss_runtime;
     load_settings_file();
     ensure_real_dxgi();
@@ -1119,7 +1119,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory1(REFIID iid, v
     return finish_factory_call(g_realCreateFactory1(iid, factory), iid, factory);
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory2(UINT flags, REFIID iid, void** factory) {
+extern "C" HRESULT WINAPI TrSSCreateDXGIFactory2(UINT flags, REFIID iid, void** factory) {
     using namespace trss_runtime;
     load_settings_file();
     ensure_real_dxgi();
@@ -1127,28 +1127,28 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory2(UINT flags, R
     return finish_factory_call(g_realCreateFactory2(flags, iid, factory), iid, factory);
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DXGIDeclareAdapterRemovalSupport() {
+extern "C" HRESULT WINAPI TrSSDXGIDeclareAdapterRemovalSupport() {
     using namespace trss_runtime;
     ensure_real_dxgi();
     if (!g_realDeclareRemovalSupport) return S_OK;
     return g_realDeclareRemovalSupport();
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DXGIDisableVBlankVirtualization() {
+extern "C" HRESULT WINAPI TrSSDXGIDisableVBlankVirtualization() {
     using namespace trss_runtime;
     ensure_real_dxgi();
     if (!g_realDisableVBlankVirtualization) return E_NOTIMPL;
     return g_realDisableVBlankVirtualization();
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DXGIGetDebugInterface(REFIID iid, void** debugInterface) {
+extern "C" HRESULT WINAPI TrSSDXGIGetDebugInterface(REFIID iid, void** debugInterface) {
     using namespace trss_runtime;
     ensure_real_dxgi();
     if (!g_realGetDebugInterface) return DXGI_ERROR_NOT_FOUND;
     return g_realGetDebugInterface(iid, debugInterface);
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DXGIGetDebugInterface1(
+extern "C" HRESULT WINAPI TrSSDXGIGetDebugInterface1(
     UINT flags, REFIID iid, void** debugInterface) {
     using namespace trss_runtime;
     ensure_real_dxgi();
