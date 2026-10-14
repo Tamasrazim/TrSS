@@ -396,7 +396,7 @@ def run_sequence(
             if needs_history and previous is None:
                 raise AdapterSpecError(
                     f"Frame {entry.frame_id} on manifest line {entry.line_number} has no valid "
-                    "previous RGB output. Supply initial_history for the first frame and after "
+                    "previous RGB output; supply initial_history for the first frame and after "
                     "every scene/resolution/camera-cut/frame-gap reset that needs a seed."
                 )
 
