@@ -572,7 +572,8 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
         "average_ram_used_bytes", "average_ram_total_bytes", "average_ram_percent",
         *STANDARD_SETTINGS.keys(),
         "additional_game_settings_json", "missing_settings_json",
-        "settings_needing_value_decoding_json", "participant_notes",
+        "settings_not_confirmed_json", "settings_needing_value_decoding_json",
+        "participant_notes",
     ]
     temporary = csv_path.with_suffix(".csv.tmp")
     with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
@@ -599,6 +600,7 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
                 "performance_samples": capture.get("performance_samples"),
                 "additional_game_settings_json": json.dumps(item.get("additional_game_settings") or {}, ensure_ascii=False, sort_keys=True),
                 "missing_settings_json": json.dumps(coverage.get("missing_settings") or [], ensure_ascii=False),
+                "settings_not_confirmed_json": json.dumps(coverage.get("settings_not_confirmed") or [], ensure_ascii=False),
                 "settings_needing_value_decoding_json": json.dumps(coverage.get("settings_needing_value_decoding") or [], ensure_ascii=False),
                 "participant_notes": item.get("participant_notes"),
             }
