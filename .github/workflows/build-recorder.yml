@@ -3,6 +3,16 @@ name: Build TrSS Data Recorder
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+    paths:
+      - "trss/recorder.py"
+      - "tests/test_recorder.py"
+      - "pyproject.toml"
+      - "run_recorder.py"
+      - ".github/workflows/build-recorder.yml"
+      - "docs/RECORDER.md"
+      - "docs/RECORDER-RELEASE.md"
     tags:
       - "recorder-v*"
 
