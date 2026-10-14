@@ -10,9 +10,6 @@ TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loade
 
 TrSS is independent research software and is not affiliated with, endorsed by, or a product of Intel or NVIDIA.
 
-**Suggested GitHub repository description**
-
-> TrSS (Tamasrazim's Real-time Scene Synthesis) is an experimental neural-rendering engine for Intel Arc, with PyTorch training and Direct3D 9/11/12 plus Vulkan research paths. Photorealistic appearance reconstruction remains the goal; the current model is a baseline.
 
 ## Project progress
 
