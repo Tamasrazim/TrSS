@@ -463,7 +463,7 @@ def _create_dataset(
                 history_file = Path("history") / relative_folder.with_suffix(".png")
                 valid_file = Path("history_valid") / relative_folder.with_suffix(".png")
                 _save_rgb(root / history_file, history)
-                (root / valid_file).parent.mkdir(parents=True, exist_ok=True)
+                                (root / valid_file).parent.mkdir(parents=True, exist_ok=True)
                 Image.fromarray(valid_mask, mode="L").save(valid_file, format="PNG", optimize=False)
                 history_path = history_file.as_posix()
                 history_valid_path = valid_file.as_posix()
