@@ -556,6 +556,8 @@ def generate_scene_dataset(
         raise ValueError("output_dir must name a dedicated output folder.")
     if output.exists() and not force:
         raise FileExistsError(f"Output path already exists: {output}. Use --force to replace it.")
+    if output.exists() and not output.is_dir():
+        raise NotADirectoryError(f"Output path must be a directory: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))

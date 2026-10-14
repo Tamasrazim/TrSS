@@ -9,8 +9,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from trss.training.audit_dataset import audit_manifests
 from trss.training.generate_scene_dataset import generate_scene_dataset
 from trss.training.manifest import load_manifest
+from trss.training.split_manifest import split_manifest
 
 
 def test_generator_writes_complete_paired_sequences_and_geometry_buffers(tmp_path):
@@ -159,3 +161,40 @@ def test_generator_rejects_invalid_dimensions_and_counts(
     settings[setting] = value
     with pytest.raises(ValueError, match=message):
         generate_scene_dataset(tmp_path / "bad", **settings)
+
+
+
+def test_generated_data_splits_by_scene_and_passes_structural_audit(tmp_path):
+    output = tmp_path / "pipeline"
+    generate_scene_dataset(
+        output,
+        scenes=4,
+        frames_per_scene=2,
+        width=64,
+        height=36,
+        seed=991,
+    )
+    train = output / "train.jsonl"
+    validation = output / "validation.jsonl"
+    split = split_manifest(
+        output / "all-frames.jsonl",
+        train,
+        validation,
+        validation_fraction=0.25,
+        seed=17,
+        scene_field="scene_id",
+    )
+    assert set(split["train_scenes"]).isdisjoint(set(split["validation_scenes"]))
+
+    report = audit_manifests(
+        train,
+        validation,
+        tmp_path / "audit.json",
+        provenance_json=output / "provenance.json",
+    )
+    assert report["passed"] is True, report["errors"]
+    assert report["splits"]["training"]["frames"] + report["splits"]["validation"]["frames"] == 8
+    assert report["cross_split_duplicate_pixel_groups"] == {
+        "low_res": 0,
+        "target": 0,
+    }

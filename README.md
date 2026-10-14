@@ -151,7 +151,8 @@ The built-in CPU scene generator creates deterministic, first-party 3D box scene
 
 ```powershell
 python -m trss.training.generate_scene_dataset --output-dir data/trss-pilot --scenes 4 --frames-per-scene 6 --width 160 --height 90 --seed 20261014
-python -m trss.training.audit_dataset --train-manifest data/trss-pilot/all-frames.jsonl --validation-manifest data/trss-pilot/all-frames.jsonl --report logs/trss-pilot-audit.json --motion-scale-px 64
+python -m trss.training.split_manifest --input-manifest data/trss-pilot/all-frames.jsonl --train-output data/trss-pilot/train.jsonl --validation-output data/trss-pilot/validation.jsonl --scene-field scene_id --validation-fraction 0.25 --seed 20261014
+python -m trss.training.audit_dataset --train-manifest data/trss-pilot/train.jsonl --validation-manifest data/trss-pilot/validation.jsonl --provenance-json data/trss-pilot/provenance.json --report logs/trss-pilot-audit.json --motion-scale-px 64
 ```
 
 For the first command, use a fresh output folder; existing folders are protected unless `--force` is supplied. Before training, use the scene-split command below to create disjoint train and validation manifests, then audit those two manifests separately. This generator is intentionally a local CPU proof of pipeline behavior, not a real-game or Arc GPU capture path.
