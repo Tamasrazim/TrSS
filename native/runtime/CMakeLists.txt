@@ -12,7 +12,7 @@ add_library(trss_runtime SHARED
 )
 
 target_compile_features(trss_runtime PRIVATE cxx_std_17)
-target_compile_definitions(trss_runtime PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_compile_definitions(trss_runtime PRIVATE UNICODE _UNICODE)
 target_compile_options(trss_runtime PRIVATE
   /W4
   /permissive-
