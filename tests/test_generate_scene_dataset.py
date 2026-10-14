@@ -184,7 +184,7 @@ def test_generated_data_splits_by_scene_and_passes_structural_audit(tmp_path):
         seed=17,
         scene_field="scene_id",
     )
-    assert set(split["train_scenes"]).isdisjoint(set(split["validation_scenes"]))
+    assert set(split["training_scenes"]).isdisjoint(set(split["validation_scenes"]))
 
     report = audit_manifests(
         train,
