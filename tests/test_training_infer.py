@@ -11,8 +11,8 @@ from PIL import Image
 
 torch = pytest.importorskip("torch")
 
-from xess5.training.infer import run_frame
-from xess5.training.model import MODEL_FORMAT, XESS5TemporalSR
+from trss.training.infer import run_frame
+from trss.training.model import MODEL_FORMAT, TRSSTemporalSR
 
 
 def _save_rgb(path: Path, height: int, width: int, value: int) -> None:
@@ -22,7 +22,7 @@ def _save_rgb(path: Path, height: int, width: int, value: int) -> None:
 
 
 def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_path):
-    model = XESS5TemporalSR(channels=16, blocks=2, context_blocks=1)
+    model = TRSSTemporalSR(channels=16, blocks=2, context_blocks=1)
     checkpoint = tmp_path / "test-checkpoint.pt"
     torch.save(
         {

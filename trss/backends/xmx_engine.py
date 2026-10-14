@@ -1,4 +1,4 @@
-"""Optional bridge from XESS5 frame contracts to the vendored Intel Xe2 XMX runner.
+"""Optional bridge from TRSS frame contracts to the vendored Intel Xe2 XMX runner.
 
 This path needs a locally built Vulkan runtime, all required SPIR-V shaders, and a
 compatible legal logical-weight safetensors file. It is intentionally separate from
@@ -171,9 +171,9 @@ class XMXFrameEngine:
         self._frame_size: tuple[int, int] | None = None
         self._closed = False
 
-        previous_device = os.environ.get("XESS5_VULKAN_DEVICE")
+        previous_device = os.environ.get("TRSS_VULKAN_DEVICE")
         if device_substring is not None:
-            os.environ["XESS5_VULKAN_DEVICE"] = device_substring.strip()
+            os.environ["TRSS_VULKAN_DEVICE"] = device_substring.strip()
         try:
             self._modules = _load_vendor_modules()
             self.runtime = self._modules.runtime_module.Runtime()
@@ -191,9 +191,9 @@ class XMXFrameEngine:
             # The C runtime reads this only when it first selects a Vulkan device.
             if device_substring is not None:
                 if previous_device is None:
-                    os.environ.pop("XESS5_VULKAN_DEVICE", None)
+                    os.environ.pop("TRSS_VULKAN_DEVICE", None)
                 else:
-                    os.environ["XESS5_VULKAN_DEVICE"] = previous_device
+                    os.environ["TRSS_VULKAN_DEVICE"] = previous_device
 
         try:
             raw_name = self.runtime.lib.xmx_device()
@@ -204,7 +204,7 @@ class XMXFrameEngine:
             if "arc" not in self.device_name.casefold():
                 raise XMXBackendUnavailable(
                     "The native runtime selected a non-Arc device "
-                    f"({self.device_name!r}); XESS5's XMX path requires Intel Arc."
+                    f"({self.device_name!r}); TRSS's XMX path requires Intel Arc."
                 )
 
             self._weights, self._metadata = self._modules.model_module.load_logical(

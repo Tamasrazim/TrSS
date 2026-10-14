@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from xess5.rendering import FramePacket, FrameValidationError, TemporalHistory
+from trss.rendering import FramePacket, FrameValidationError, TemporalHistory
 
 
 def make_frame(

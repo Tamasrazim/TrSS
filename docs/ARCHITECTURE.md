@@ -1,25 +1,25 @@
-# XESS5 engine architecture
+# TRSS engine architecture
 
-XESS5 is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
+TRSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
-- `xess5/backends/openvino_backend.py`: local device inventory and strict Arc/explicit GPU selection. No silent CPU fallback.
-- `xess5/contracts.py`: normalized-range parsing and image-to-tensor/tensor-to-image conversion, with explicit NCHW/NHWC and RGB/BGR handling.
-- `xess5/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
-- `xess5/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
-- `xess5/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
-- `xess5/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
-- `xess5/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
-- `xess5/training/`: first-party 10-channel, scale-2 temporal reconstruction architecture, explicit paired-frame manifest/dataset reader, and PyTorch training loop. These checkpoints are a separate format and cannot yet run through the fixed-graph `xmx-frame` backend.
+- `trss/backends/openvino_backend.py`: local device inventory and strict Arc/explicit GPU selection. No silent CPU fallback.
+- `trss/contracts.py`: normalized-range parsing and image-to-tensor/tensor-to-image conversion, with explicit NCHW/NHWC and RGB/BGR handling.
+- `trss/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
+- `trss/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
+- `trss/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
+- `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
+- `trss/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
+- `trss/training/`: first-party 10-channel, scale-2 temporal reconstruction architecture, explicit paired-frame manifest/dataset reader, and PyTorch training loop. These checkpoints are a separate format and cannot yet run through the fixed-graph `xmx-frame` backend.
 - `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
 - `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI builds the native runtime, host helpers, and runtime SPIR-V shaders, but does not execute the native backend on a GPU.
 
 ## GPU selection
 
-`xess5 devices` reports the actual IDs and names OpenVINO exposes. `--device ARC` is intentionally strict: it selects an Intel Arc-named GPU only if that is unambiguous. When multiple devices identify as Arc, pass an exact ID such as `GPU.1`. CPU devices are not accepted as substitutes for a GPU. This prevents a hybrid system from accidentally running on the integrated adapter or CPU while presenting the result as B580 performance.
+`trss devices` reports the actual IDs and names OpenVINO exposes. `--device ARC` is intentionally strict: it selects an Intel Arc-named GPU only if that is unambiguous. When multiple devices identify as Arc, pass an exact ID such as `GPU.1`. CPU devices are not accepted as substitutes for a GPU. This prevents a hybrid system from accidentally running on the integrated adapter or CPU while presenting the result as B580 performance.
 
-The separate vendored Vulkan runtime applies the same fail-closed principle. With no override, it requires exactly one Vulkan adapter name containing `Arc`. Set `XESS5_VULKAN_DEVICE` to a more specific name substring only when it uniquely identifies the intended Arc adapter; an explicit override that matches a non-Arc device fails before Vulkan device creation. This selection code is source-level hardening; physical Vulkan startup is not yet part of Python CI.
+The separate vendored Vulkan runtime applies the same fail-closed principle. With no override, it requires exactly one Vulkan adapter name containing `Arc`. Set `TRSS_VULKAN_DEVICE` to a more specific name substring only when it uniquely identifies the intended Arc adapter; an explicit override that matches a non-Arc device fails before Vulkan device creation. This selection code is source-level hardening; physical Vulkan startup is not yet part of Python CI.
 
 The Windows/Linux driver and OpenVINO GPU plugin are system requirements. A successful CPU-only CI run is not hardware validation.
 
@@ -58,7 +58,7 @@ Missing inputs remain missing. The package never fills a depth or motion tensor 
 ## Next engineering milestones
 
 ### 1. Train and validate the first-party model
-Build scene-separated training and validation manifests from renders and auxiliary buffers whose sources and licences permit training. Train the first-party architecture with `python -m xess5.training.train`, then compare held-out crops and sequences. The `docs/TRAINING.md` document defines depth/motion/history semantics and the explicit reset contract.
+Build scene-separated training and validation manifests from renders and auxiliary buffers whose sources and licences permit training. Train the first-party architecture with `python -m trss.training.train`, then compare held-out crops and sequences. The `docs/TRAINING.md` document defines depth/motion/history semantics and the explicit reset contract.
 
 ### 2. Choose and verify the inference model contract
 Select properly licensed parameters and an architecture relevant to neural graphics. Record exact file hashes, names, input meanings, tensor shapes, color space, normalization, precision, output composition, and the license. If it expects a proprietary runtime or weights that cannot be redistributed, document that boundary rather than bundling it.
@@ -84,21 +84,21 @@ Only after offline output and performance are correct, build a documented Vulkan
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[gpu,test]"
-xess5 devices
-xess5 inspect --model "models\model.onnx"
+trss devices
+trss inspect --model "models\model.onnx"
 python -m pytest
 ```
 
 Simple image inference:
 
 ```powershell
-xess5 infer --model "models\model.onnx" --input "input.png" --output "output.png" --device ARC --layout NCHW --input-range 0:1 --output-range 0:1 --warmup 3 --iterations 10 --report "logs\run.json"
+trss infer --model "models\model.onnx" --input "input.png" --output "output.png" --device ARC --layout NCHW --input-range 0:1 --output-range 0:1 --warmup 3 --iterations 10 --report "logs\run.json"
 ```
 
 Multiple inputs:
 
 ```powershell
-xess5 infer-tensors --model "models\render-model.onnx" --input "color=work\color.npy" --input "depth=work\depth.npy" --input "motion=work\motion.npy" --output-dir "work\outputs" --device ARC --warmup 2 --iterations 10 --report "logs\tensor-run.json"
+trss infer-tensors --model "models\render-model.onnx" --input "color=work\color.npy" --input "depth=work\depth.npy" --input "motion=work\motion.npy" --output-dir "work\outputs" --device ARC --warmup 2 --iterations 10 --report "logs\tensor-run.json"
 ```
 
 The tensor command runs the model with caller-supplied arrays. Correct preprocessing and the meaning of each input remain the adapter's responsibility.
@@ -118,7 +118,7 @@ The tensor command runs the model with caller-supplied arrays. Correct preproces
 
 ## Specialized HNet-style frame adapter
 
-`xess5/rendering/hnet.py` adds a separate, explicit pre/post-processing path around a supplied model. It was implemented from the public frame contract documented by the Intel Xe2 research project and its cited Apache-2.0 feature-contract reference; the project records the research and license boundaries in [THIRD-PARTY-RESEARCH.md](THIRD-PARTY-RESEARCH.md).
+`trss/rendering/hnet.py` adds a separate, explicit pre/post-processing path around a supplied model. It was implemented from the public frame contract documented by the Intel Xe2 research project and its cited Apache-2.0 feature-contract reference; the project records the research and license boundaries in [THIRD-PARTY-RESEARCH.md](THIRD-PARTY-RESEARCH.md).
 
 The adapter performs:
 
@@ -148,7 +148,7 @@ To test the adapter, supply an otherwise compatible, legally usable ONNX/OpenVIN
 CLI:
 
 ```powershell
-xess5 hnet-frame --model "models\model.onnx" --color "frames\frame.png" --output "work\rendered.png" --device ARC --output-layout NCHW --frame-index 0 --warmup 1 --iterations 5 --history-output "work\next-history.npy" --head-output "work\head.npy" --report "logs\hnet.json"
+trss hnet-frame --model "models\model.onnx" --color "frames\frame.png" --output "work\rendered.png" --device ARC --output-layout NCHW --frame-index 0 --warmup 1 --iterations 5 --history-output "work\next-history.npy" --head-output "work\head.npy" --report "logs\hnet.json"
 ```
 
 The command reports the requested and resolved GPU ID, device name, network dimensions, preprocessing/model timing, and output paths. All inference inputs and model files stay local. No actual Arc B580 run, live-game capture, Vulkan hook, or in-game performance result has been verified by CPU-only CI.

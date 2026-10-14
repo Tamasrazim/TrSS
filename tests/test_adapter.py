@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from xess5.rendering import FramePacket
-from xess5.rendering.adapter import (
+from trss.rendering import FramePacket
+from trss.rendering.adapter import (
     AdapterSpecError,
     ModelAdapterSpec,
     adapt_frame,
@@ -227,7 +227,7 @@ def test_bilinear_resampling_has_expected_midpoint():
 
 
 def test_preview_binding_converts_declared_nchw_output_to_rgb_float():
-    from xess5.rendering.adapter import preview_from_outputs
+    from trss.rendering.adapter import preview_from_outputs
 
     spec = ModelAdapterSpec.from_dict({
         "version": 1,
@@ -249,7 +249,7 @@ def test_preview_binding_converts_declared_nchw_output_to_rgb_float():
 
 
 def test_preview_binding_reorders_bgr_to_rgb():
-    from xess5.rendering.adapter import preview_from_outputs
+    from trss.rendering.adapter import preview_from_outputs
 
     spec = ModelAdapterSpec.from_dict({
         "version": 1,
@@ -268,7 +268,7 @@ def test_preview_binding_reorders_bgr_to_rgb():
 
 
 def test_preview_binding_refuses_feature_tensors():
-    from xess5.rendering.adapter import preview_from_outputs
+    from trss.rendering.adapter import preview_from_outputs
 
     spec = ModelAdapterSpec.from_dict({
         "version": 1,

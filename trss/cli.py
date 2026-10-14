@@ -1,4 +1,4 @@
-"""Command-line interface for the XESS5 Intel Arc neural inference engine."""
+"""Command-line interface for the TRSS Intel Arc neural inference engine."""
 
 from __future__ import annotations
 
@@ -37,10 +37,10 @@ def _range_argument(value: str) -> tuple[float, float]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="xess5",
+        prog="trss",
         description="Local neural inference engine targeting Intel Arc GPUs.",
     )
-    parser.add_argument("--version", action="version", version=f"XESS5 {__version__}")
+    parser.add_argument("--version", action="version", version=f"TRSS {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     commands.add_parser(
@@ -201,7 +201,7 @@ def _run_devices() -> int:
     if not any("arc" in item["name"].casefold() for item in devices):
         print(
             "OpenVINO lists GPU hardware, but no device name contains 'Arc'. "
-            "XESS5 will not guess which adapter is the Arc GPU. Inspect the device "
+            "TRSS will not guess which adapter is the Arc GPU. Inspect the device "
             "list and pass its exact GPU.X ID if the driver reports a different name.",
             file=sys.stderr,
         )
@@ -310,7 +310,7 @@ def _run_inference(args: argparse.Namespace) -> int:
     inference_median = float(np.median(measured_inference_ms))
     wall_median = float(np.median(measured_wall_ms))
     report: dict[str, object] = {
-        "engine": "XESS5",
+        "engine": "TRSS",
         "engine_version": __version__,
         "operation": "single_frame_model_inference",
         "model": last_result.model_path,
@@ -431,7 +431,7 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
             details.append("unknown: " + ", ".join(extra))
         raise ValueError(
             "Tensor files do not match this model's ports (" + "; ".join(details) + "). "
-            "Run xess5 inspect --model MODEL first to see the exact input names."
+            "Run trss inspect --model MODEL first to see the exact input names."
         )
 
     prime_started = perf_counter()
@@ -467,7 +467,7 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
     inference_median = float(np.median(measured_inference_ms))
     total_median = float(np.median(measured_total_ms))
     report: dict[str, object] = {
-        "engine": "XESS5",
+        "engine": "TRSS",
         "engine_version": __version__,
         "operation": "multi_input_tensor_inference",
         "model": last.model_path,
@@ -508,7 +508,7 @@ def _run_tensor_inference(args: argparse.Namespace) -> int:
             "max": round(max(measured_total_ms), 3),
         },
         "note": (
-            "This runs the selected model with supplied tensors; XESS5 does not guess "
+            "This runs the selected model with supplied tensors; TRSS does not guess "
             "preprocessing for color, depth, motion vectors, noise, or temporal history. "
             "Only a verified model-specific adapter can turn these outputs into neural rendering."
         ),
@@ -616,7 +616,7 @@ def _run_render_frame(args: argparse.Namespace) -> int:
     spec = ModelAdapterSpec.load(args.spec)
     if (resolved_preview is not None or resolved_history_output is not None) and spec.preview_output is None:
         raise AdapterSpecError(
-            "The adapter spec must declare preview_output before XESS5 can export a display RGB frame or temporal history."
+            "The adapter spec must declare preview_output before TRSS can export a display RGB frame or temporal history."
         )
 
     engine_started = perf_counter()
@@ -693,7 +693,7 @@ def _run_render_frame(args: argparse.Namespace) -> int:
         output_paths[name] = str(destination)
 
     report: dict[str, object] = {
-        "engine": "XESS5",
+        "engine": "TRSS",
         "engine_version": __version__,
         "operation": "adapter_driven_single_frame_model_inference",
         "model": last.model_path,
@@ -935,7 +935,7 @@ def _run_hnet_frame(args: argparse.Namespace) -> int:
         np.save(head_path, last_result.head.astype(np.float32), allow_pickle=False)
 
     report: dict[str, object] = {
-        "engine": "XESS5",
+        "engine": "TRSS",
         "engine_version": __version__,
         "operation": "hnet_contract_frame_inference",
         "model": str(args.model.resolve()),
@@ -1100,7 +1100,7 @@ def _run_xmx_frame(args: argparse.Namespace) -> int:
         preprocess_times = [item.preprocess_ms for item in measured_results]
         composition_times = [item.composition_ms for item in measured_results]
         report: dict[str, object] = {
-            "engine": "XESS5",
+            "engine": "TRSS",
             "engine_version": __version__,
             "operation": "native_xmx_frame_inference",
             "logical_weights": str(args.weights.expanduser().resolve()),
@@ -1186,6 +1186,6 @@ def main(argv: list[str] | None = None) -> int:
             return _run_xmx_frame(args)
         parser.error("unknown command")
     except (BackendUnavailable, AdapterSpecError, HNetContractError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
-        print(f"XESS5 error: {exc}", file=sys.stderr)
+        print(f"TRSS error: {exc}", file=sys.stderr)
         return 2
     return 0

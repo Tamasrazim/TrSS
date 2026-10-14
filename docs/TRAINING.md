@@ -1,10 +1,10 @@
-# Training the first-party XESS5 model
+# Training the first-party TRSS model
 
-XESS5 now has an original, trainable scale-2 reconstruction architecture plus a paired-frame training pipeline. **It has no trained weights yet.** Training only begins once the user supplies a valid dataset created from scenes and assets licensed for the intended use.
+TRSS now has an original, trainable scale-2 reconstruction architecture plus a paired-frame training pipeline. **It has no trained weights yet.** Training only begins once the user supplies a valid dataset created from scenes and assets licensed for the intended use.
 
 ## Install the training runtime
 
-For Intel Arc on a supported Windows 11 or Linux setup, install the official PyTorch XPU wheels and then XESS5. Check Intel's current driver/runtime prerequisites before training:
+For Intel Arc on a supported Windows 11 or Linux setup, install the official PyTorch XPU wheels and then TRSS. Check Intel's current driver/runtime prerequisites before training:
 
 ```powershell
 python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
@@ -21,14 +21,14 @@ CPU training is much slower. Verify the selected device before a long run; `--de
 
 ## Model contract
 
-`XESS5TemporalSR` consumes ten low-resolution input channels:
+`TRSSTemporalSR` consumes ten low-resolution input channels:
 
 | Channels | Content | Contract |
 |---|---|---|
 | 0–2 | Current RGB | Display-encoded RGB, [0, 1] |
 | 3 | Depth | Real depth buffer, normalized [0, 1] with a documented encoding |
 | 4–5 | Motion | HWC input array of pixel displacement per frame; divided by `--motion-scale-px` and bounded to [-1, 1] |
-| 6–8 | Previous output | Previous XESS5/reference output already reprojected into the current view, then downsampled |
+| 6–8 | Previous output | Previous TRSS/reference output already reprojected into the current view, then downsampled |
 | 9 | History-validity mask | Real mask in [0, 1]; zero means the corresponding history must not be used |
 
 The model outputs a four-channel head at exactly 2x input width and height: RGB residuals plus a temporal blend gate. The output compositor adds the learned residual to a bicubic base and blends in history only where the supplied validity mask allows it. This is an initial architecture to benchmark, not a claim of DLSS equivalence or production quality.
@@ -36,7 +36,7 @@ The model outputs a four-channel head at exactly 2x input width and height: RGB 
 Count the parameters and estimate raw weight storage for any configuration:
 
 ```powershell
-python -m xess5.training.model --channels 48 --blocks 10 --context-blocks 4
+python -m trss.training.model --channels 48 --blocks 10 --context-blocks 4
 ```
 
 The report estimates tensor bytes at FP16 and FP32; it does not include checkpoint metadata or guarantee the final file size. A 512 MB weight file is **not** an acceptance criterion by itself: extra parameters can increase inference cost and latency without improving image quality. Compare image quality, latency, power, and VRAM on the real target hardware before scaling the network.
@@ -58,7 +58,7 @@ Create separate training and validation manifests. Split by scene or capture seq
 ## Start training
 
 ```powershell
-python -m xess5.training.train --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --output-dir models/xess5-quality --device xpu --channels 48 --blocks 10 --context-blocks 4 --patch-size 128 --batch-size 1 --epochs 100 --amp
+python -m trss.training.train --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --output-dir models/trss-quality --device xpu --channels 48 --blocks 10 --context-blocks 4 --patch-size 128 --batch-size 1 --epochs 100 --amp
 ```
 
 On an Intel GPU, the script uses PyTorch's XPU backend. `--amp` requests BF16 autocast and fails if the selected GPU does not report BF16 support; omit it to train in FP32. Patches are cropped on the CPU before transfer to conserve VRAM. A batch should contain frames with the same dimensions, so keep `--batch-size 1` when resolutions vary. Begin with a small dataset and a few epochs to confirm that the pipeline runs, then scale up once you have a clean validation baseline.
@@ -70,7 +70,7 @@ Training writes `checkpoint-last.pt`, `checkpoint-best.pt`, and `training-report
 After training, run the checkpoint with the same real auxiliary buffers:
 
 ```powershell
-python -m xess5.training.infer --checkpoint models/xess5-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/xess5-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
+python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/trss-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
 ```
 
 For a non-reset frame, also pass `--history` and `--history-valid`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case. The report includes checkpoint SHA-256, model settings, inference time, full offline frame-path time, and a labelled FPS-equivalent estimate. It is not a measurement of in-game FPS.

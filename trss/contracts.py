@@ -1,4 +1,4 @@
-"""Image/tensor conversions shared by the XESS5 inference engine."""
+"""Image/tensor conversions shared by the TRSS inference engine."""
 
 from __future__ import annotations
 

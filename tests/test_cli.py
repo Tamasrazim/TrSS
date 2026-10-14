@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-import xess5.cli as cli
+import trss.cli as cli
 
 
 def test_parse_named_tensor_preserves_equals_in_file_path():

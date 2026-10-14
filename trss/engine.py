@@ -1,6 +1,6 @@
 """A small, explicit image-to-image inference engine.
 
-This is the first inference contract for XESS5, not a claim of DLSS 5
+This is the first inference contract for TRSS, not a claim of DLSS 5
 compatibility. Neural-rendering models that require depth, motion vectors,
 temporal state, noise, or extra conditioning need a dedicated adapter.
 """

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from xess5.rendering.hnet import (
+from trss.rendering.hnet import (
     HNetContractError,
     HNetControls,
     HNetFrameEngine,

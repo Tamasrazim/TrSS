@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from xess5.contracts import image_to_tensor, parse_value_range, tensor_to_image
+from trss.contracts import image_to_tensor, parse_value_range, tensor_to_image
 
 
 def test_parse_value_range_accepts_normalized_and_signed_ranges():

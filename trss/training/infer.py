@@ -1,4 +1,4 @@
-"""Run a trained first-party XESS5 checkpoint on one offline frame."""
+"""Run a trained first-party TRSS checkpoint on one offline frame."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from PIL import Image
 from torch.nn import functional as F
 
 from .data import _read_depth, _read_mask, _read_motion, _read_rgb
-from .model import MODEL_FORMAT, XESS5TemporalSR, compose_prediction, model_size_report
+from .model import MODEL_FORMAT, TRSSTemporalSR, compose_prediction, model_size_report
 
 
 def _resolve_device(requested: str) -> torch.device:
@@ -53,18 +53,18 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _load_checkpoint(path: Path) -> tuple[XESS5TemporalSR, dict[str, Any]]:
-    # The checkpoint is a local tensor dictionary written by the XESS5 trainer.
+def _load_checkpoint(path: Path) -> tuple[TRSSTemporalSR, dict[str, Any]]:
+    # The checkpoint is a local tensor dictionary written by the TRSS trainer.
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict) or checkpoint.get("format") != MODEL_FORMAT:
         raise ValueError(
-            f"Unsupported checkpoint format. Expected '{MODEL_FORMAT}' from the XESS5 trainer."
+            f"Unsupported checkpoint format. Expected '{MODEL_FORMAT}' from the TRSS trainer."
         )
     config = checkpoint.get("config")
     state_dict = checkpoint.get("state_dict")
     if not isinstance(config, dict) or not isinstance(state_dict, dict):
         raise ValueError("Checkpoint is missing the model config or tensor state dictionary.")
-    model = XESS5TemporalSR(
+    model = TRSSTemporalSR(
         channels=int(config["channels"]),
         blocks=int(config["blocks"]),
         context_blocks=int(config["context_blocks"]),
@@ -218,7 +218,7 @@ def run_frame(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run an XESS5 checkpoint on a local frame.")
+    parser = argparse.ArgumentParser(description="Run an TRSS checkpoint on a local frame.")
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--color", required=True, type=Path)
     parser.add_argument("--depth", required=True, type=Path)

@@ -12,7 +12,7 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - name: Check out XESS5
+      - name: Check out TRSS
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -24,7 +24,7 @@ jobs:
         run: python -m pip install -e ".[test]"
 
       - name: Check Python syntax
-        run: python -m compileall -q xess5 tests
+        run: python -m compileall -q trss tests
 
       - name: Run CPU-only tests
         run: python -m pytest

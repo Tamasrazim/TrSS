@@ -1,4 +1,4 @@
-"""Original, scale-2 XESS5 temporal reconstruction model.
+"""Original, scale-2 TRSS temporal reconstruction model.
 
 This is a first-party trainable reference architecture, not the vendored research
 graph used by the experimental xmx-frame command. Its weights must be trained.
@@ -16,7 +16,7 @@ from torch.nn import functional as F
 INPUT_CHANNELS = 10
 OUTPUT_CHANNELS = 4
 UPSCALE_FACTOR = 2
-MODEL_FORMAT = "xess5-temporal-sr-v1"
+MODEL_FORMAT = "trss-temporal-sr-v1"
 
 
 class EfficientResidualBlock(nn.Module):
@@ -42,7 +42,7 @@ class EfficientResidualBlock(nn.Module):
         return value + correction * 0.2
 
 
-class XESS5TemporalSR(nn.Module):
+class TRSSTemporalSR(nn.Module):
     """Reconstruct a 2x RGB frame from real color/depth/motion/history inputs.
 
     Input channel contract, all NCHW and spatially aligned at low resolution:
@@ -193,12 +193,12 @@ def model_size_report(model: nn.Module) -> dict[str, int]:
 
 
 def _main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect an XESS5 model configuration.")
+    parser = argparse.ArgumentParser(description="Inspect an TRSS model configuration.")
     parser.add_argument("--channels", type=int, default=48)
     parser.add_argument("--blocks", type=int, default=10)
     parser.add_argument("--context-blocks", type=int, default=4)
     args = parser.parse_args()
-    model = XESS5TemporalSR(
+    model = TRSSTemporalSR(
         channels=args.channels,
         blocks=args.blocks,
         context_blocks=args.context_blocks,

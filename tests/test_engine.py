@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-import xess5.engine as engine_module
-from xess5.backends.openvino_backend import BackendUnavailable, resolve_device
-from xess5.engine import ImageInferenceEngine, ModelContractError, inspect_model, _numpy_dtype
+import trss.engine as engine_module
+from trss.backends.openvino_backend import BackendUnavailable, resolve_device
+from trss.engine import ImageInferenceEngine, ModelContractError, inspect_model, _numpy_dtype
 
 
 class FakeDimension:

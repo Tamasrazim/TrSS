@@ -94,7 +94,7 @@ def resolve_device(core: Any, requested: str) -> str:
             f"No Intel Arc adapter was identified by OpenVINO. Detected: {seen}. "
             "Check the Intel graphics driver and OpenVINO GPU plugin. If your Arc "
             "device is listed under an unexpected name, select its exact GPU.X ID "
-            "explicitly after inspecting the xess5 devices output."
+            "explicitly after inspecting the trss devices output."
         )
 
     if requested.upper() == "GPU":
@@ -105,7 +105,7 @@ def resolve_device(core: Any, requested: str) -> str:
         if "GPU" in by_id:
             return "GPU"
         raise BackendUnavailable(
-            "OpenVINO's GPU alias is unavailable. Run xess5 devices and select "
+            "OpenVINO's GPU alias is unavailable. Run trss devices and select "
             "an explicit GPU.X device ID."
         )
 
@@ -119,7 +119,7 @@ def resolve_device(core: Any, requested: str) -> str:
 
     if not requested.upper().startswith("GPU"):
         raise BackendUnavailable(
-            f"Device {requested!r} is not a GPU. XESS5 refuses CPU fallback; "
+            f"Device {requested!r} is not a GPU. TRSS refuses CPU fallback; "
             "choose ARC or an explicit GPU.X ID."
         )
 

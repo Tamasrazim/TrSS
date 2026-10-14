@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import xess5.backends.xmx_engine as xmx_module
-from xess5.backends.xmx_engine import XMXBackendUnavailable, XMXFrameEngine
+import trss.backends.xmx_engine as xmx_module
+from trss.backends.xmx_engine import XMXBackendUnavailable, XMXFrameEngine
 
 
 def fake_xmx_modules(device_name: str = "Intel Arc B580 Graphics"):

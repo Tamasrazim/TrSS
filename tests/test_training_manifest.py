@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from xess5.training.manifest import ManifestError, load_manifest
+from trss.training.manifest import ManifestError, load_manifest
 
 
 def _make_row_files(folder: Path) -> Path:

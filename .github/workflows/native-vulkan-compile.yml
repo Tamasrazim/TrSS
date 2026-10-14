@@ -12,7 +12,7 @@ jobs:
   build-xmx:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out XESS5
+      - name: Check out TRSS
         uses: actions/checkout@v4
 
       - name: Install native build dependencies

@@ -1,4 +1,4 @@
-"""Train the original XESS5 model with local paired-render data."""
+"""Train the original TRSS model with local paired-render data."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from .data import XESS5FrameDataset
-from .model import MODEL_FORMAT, XESS5TemporalSR, compose_prediction, model_size_report
+from .data import TRSSFrameDataset
+from .model import MODEL_FORMAT, TRSSTemporalSR, compose_prediction, model_size_report
 
 
 def _resolve_device(requested: str) -> torch.device:
@@ -101,7 +101,7 @@ def _training_loss(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tens
 
 
 def _run_epoch(
-    model: XESS5TemporalSR,
+    model: TRSSTemporalSR,
     loader: DataLoader,
     device: torch.device,
     *,
@@ -148,13 +148,13 @@ def _run_epoch(
     return total_loss / samples
 
 
-def _cpu_state_dict(model: XESS5TemporalSR) -> dict[str, torch.Tensor]:
+def _cpu_state_dict(model: TRSSTemporalSR) -> dict[str, torch.Tensor]:
     return {name: value.detach().cpu() for name, value in model.state_dict().items()}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Train the original XESS5 2x temporal reconstruction model."
+        description="Train the original TRSS 2x temporal reconstruction model."
     )
     parser.add_argument("--train-manifest", required=True, type=Path)
     parser.add_argument("--validation-manifest", type=Path)
@@ -189,11 +189,11 @@ def main() -> int:
         # Fail before loading the dataset if the chosen device cannot run BF16.
         _autocast_context(device, True)
 
-    train_set = XESS5FrameDataset(
+    train_set = TRSSFrameDataset(
         args.train_manifest, motion_scale_px=args.motion_scale_px
     )
     validation_set = (
-        XESS5FrameDataset(
+        TRSSFrameDataset(
             args.validation_manifest, motion_scale_px=args.motion_scale_px
         )
         if args.validation_manifest
@@ -208,7 +208,7 @@ def main() -> int:
         else None
     )
 
-    model = XESS5TemporalSR(
+    model = TRSSTemporalSR(
         channels=args.channels,
         blocks=args.blocks,
         context_blocks=args.context_blocks,

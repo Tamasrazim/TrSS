@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "xess5"
+name = "trss"
 version = "0.1.0"
-description = "A local neural image-inference engine and research foundation for Intel Arc GPUs"
+description = "An experimental, local-first neural-rendering research engine targeting Intel Arc GPUs"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,10 +19,10 @@ training = ["torch>=2.5"]
 test = ["pytest>=8.0"]
 
 [project.scripts]
-xess5 = "xess5.cli:main"
+trss = "trss.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["xess5*"]
+include = ["trss*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

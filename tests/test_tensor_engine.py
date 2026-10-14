@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from xess5.engine import ModelContractError
-from xess5.tensor_engine import TensorInferenceEngine, _port_numpy_dtype
+from trss.engine import ModelContractError
+from trss.tensor_engine import TensorInferenceEngine, _port_numpy_dtype
 from test_engine import (
     FakeCore,
     FakeModel,
@@ -14,7 +14,7 @@ from test_engine import (
     FakeOutputTensor,
     install_fake_openvino,
 )
-import xess5.tensor_engine as tensor_engine_module
+import trss.tensor_engine as tensor_engine_module
 
 
 @pytest.mark.parametrize("precision", ["bf16", "bfloat16", "Type.bf16"])
