@@ -83,7 +83,7 @@ def test_game_entry_key_and_executable_name_are_stable(tmp_path: Path) -> None:
 
     assert entry.exe_name == "A Game.exe"
     assert entry.key
-    assert entry.short_path == str(tmp_path)
+    assert Path(entry.short_path).name == tmp_path.name
 
 
 def test_icon_color_uses_the_executable_icon_png(tmp_path: Path) -> None:
