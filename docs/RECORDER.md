@@ -14,10 +14,10 @@ When a game is launched, the library minimizes and shows a small always-on-top, 
 
 - System CPU use and the selected game process CPU use.
 - System memory use and the selected game's working-set memory.
-- Per-game displayed FPS, application FPS, average frametime and a rolling 1% low estimate from per-present Windows ETW frame events, when those events are available.
+- CPU, RAM, and available per-process GPU counters from Windows.
 - Per-process GPU 3D utilization and dedicated GPU memory, when the Windows GPU performance counters expose them.
 
-The portable build includes the pinned PresentMon 2.6.0 console telemetry runtime as a hidden background component; participants do not need to install or open a separate performance-monitoring app. Its upstream MIT notice is included with the release. If Windows denies ETW trace access, the FPS line shows the reason and remains unavailable instead of estimating values from the monitor refresh rate, screenshot rate, or GPU load. Windows Performance Log permission may be required. Some exclusive-fullscreen games may also prevent an ordinary desktop overlay from appearing.
+FPS, application FPS, frametime, and 1% low are currently displayed as unavailable while the first-party TrSS per-present collector is being developed. This build does not launch or bundle an external telemetry collector. We will implement the frame-event capture inside TrSS rather than silently adding someone else's runtime. Some exclusive-fullscreen games may also prevent an ordinary desktop overlay from appearing.
 
 ## Start an unlimited-duration capture
 
@@ -36,7 +36,7 @@ The portable build includes the pinned PresentMon 2.6.0 console telemetry runtim
 | system.json | Operating-system, CPU/GPU driver labels, and installed memory when available. |
 | sequence.jsonl | Frame index, measured elapsed timestamp, session ID and relative PNG path. |
 | frames/frame-XXXXXXXX.png | Lossless RGB screenshots from the active game window. |
-| performance.jsonl | Timestamped CPU, game-memory, system-memory, available per-process GPU counters, per-game FPS, application FPS, frametime and 1% low. Values stay null when the metric is unavailable. |
+| performance.jsonl | Timestamped CPU, game-memory, system-memory, and available per-process GPU counters. Frame-rate fields stay null until first-party TrSS frame telemetry is implemented. |
 | SHA256SUMS.txt | SHA-256 hashes of all other files in the bundle. |
 | README.txt | Human-readable contents, privacy details and limitations. |
 
@@ -55,14 +55,11 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
-.\scripts\fetch_presentmon.ps1
 trss-recorder
 ~~~
-
-The first-time source setup downloads the official PresentMon 2.6.0 Windows x64 collector and checks its pinned SHA-256 digest. That small open-source component is bundled into the app build and runs hidden only for per-frame telemetry. No telemetry is sent to PresentMon's maintainers or to TrSS servers.
 
 To run the old single-window capture utility directly, use **trss-window-recorder**. The new game library is the recommended participant interface.
 
 ## Portable Windows build
 
-The repository workflow builds a single-file Windows executable and a SHA-256 checksum. Open the GitHub Actions page and select **Build TrSS Game Library** to download the build artifact. A version tag named **game-library-v...** publishes the executable, checksum and PresentMon notice as a GitHub Release. The build is generated in CI; it still needs real-machine validation across different Windows versions, graphics drivers, game launchers and fullscreen modes.
+The repository workflow builds a single-file Windows executable and a SHA-256 checksum. Open the GitHub Actions page and select **Build TrSS Game Library** to download the build artifact. A version tag named **game-library-v...** publishes the executable and checksum as a GitHub Release. The build is generated in CI; it still needs real-machine validation across different Windows versions, graphics drivers, game launchers and fullscreen modes.
