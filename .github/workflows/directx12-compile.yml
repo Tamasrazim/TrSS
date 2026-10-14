@@ -44,6 +44,19 @@ jobs:
             if ($bytes[$i] -ne $signature[$i]) { throw "PNG self-test signature mismatch." }
           }
 
+      - name: Check the capture helper PowerShell syntax
+        shell: pwsh
+        run: |
+          $parseErrors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "scripts/Record-TrSSSession.ps1", [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw "Capture helper has PowerShell syntax errors."
+          }
+
       - name: Package the standalone desktop capture utility
         shell: pwsh
         run: |
@@ -61,17 +74,4 @@ jobs:
           path: trss-capture-win-x64.zip
           if-no-files-found: error
           retention-days: 14
-
-      - name: Check the capture helper PowerShell syntax
-        shell: pwsh
-        run: |
-          $parseErrors = $null
-          $tokens = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            "scripts/Record-TrSSSession.ps1", [ref]$tokens, [ref]$parseErrors
-          ) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Error $_.Message }
-            throw "Capture helper has PowerShell syntax errors."
-          }
 

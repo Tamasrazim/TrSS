@@ -81,16 +81,34 @@ This is a real-game-image experiment, but the low-resolution input is synthetica
 Keep game captures and extracted images local unless you have permission to redistribute them. For reviewing results, share the small experiment/evaluation JSON reports and a comparison screenshot; a manifest by itself does not contain visual training data.
 
 
-## One-command capture helper
+## Quick capture → train test
 
-The Windows artifact bundle includes Record-TrSSSession.ps1. It lists monitors, creates a unique output folder, gives you a countdown to switch back to the game, then writes the PNG frames and JSON metadata.
+The Windows artifact bundle includes Record-TrSSSession.ps1 beside the standalone EXE. For your first test, collect two short sessions so you can confirm that capture and training work before making large folders.
 
-Open PowerShell in the extracted package directory and run:
+First, drive around a stretch of road and capture one minute:
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File .\Record-TrSSSession.ps1 -Game "Euro Truck Simulator 2" -Adapter 0 -Monitor 0 -Seconds 600 -SamplesPerSecond 2
+powershell -ExecutionPolicy Bypass -NoProfile -File .\Record-TrSSSession.ps1 -Game "Euro Truck Simulator 2" -Adapter 0 -Monitor 0 -Seconds 60 -SamplesPerSecond 2 -OutputDirectory "captures\ets2-road-a"
 ~~~
 
-Check the monitor indexes printed by the script before recording. The countdown gives you time to switch back to the game so the gameplay picture, not the terminal, is in front when sampling begins. Run it a second time while driving through a different location to create a separate capture session.
+Then drive to a different stretch of road and run the same command with a different output folder:
 
-The sampler records the selected monitor's visible pixels, so overlays, menus, desktop focus and display scaling may appear in the saved images. It does not know whether a game is focused. Review a few PNGs before training.
+~~~powershell
+powershell -ExecutionPolicy Bypass -NoProfile -File .\Record-TrSSSession.ps1 -Game "Euro Truck Simulator 2" -Adapter 0 -Monitor 0 -Seconds 60 -SamplesPerSecond 2 -OutputDirectory "captures\ets2-road-b"
+~~~
+
+Both sessions must be captured in separate locations to give training a held-out recording. The helper lists monitor indexes and gives an 8-second countdown before it starts. The game must be visible on the selected monitor when that countdown ends. It creates each output folder with PNGs, capture-manifest.jsonl, and session.json.
+
+Install Intel's PyTorch XPU build, then install TrSS and run a small training/evaluation experiment:
+
+~~~powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
+python -m pip install -e ".[training,test]"
+python -c "import torch; print(torch.__version__); print(torch.xpu.is_available())"
+
+python -m trss.training.gameplay_experiment "captures\ets2-road-a" "captures\ets2-road-b" --output-dir logs\ets2-first-run --game "Euro Truck Simulator 2" --device xpu --epochs 3 --max-frames-per-video 120 --validation-fraction 0.5
+~~~
+
+Open logs\ets2-first-run\experiment-report.json and logs\ets2-first-run\evaluation\index.html. The workflow imports the two capture folders, creates half-size inputs from captured targets, trains the RGB-only spatial baseline, and compares predictions with the held-out recording. Start small; increase capture duration and epochs only after this test finishes cleanly.
+
+**JSON alone is not the training data.** The manifest points to the PNGs; keep the entire capture folder together. You do not need to upload capture folders to GitHub or commit game frames. Keep them local unless you have permission to redistribute them. To get results reviewed, share experiment-report.json, evaluation-report.json, and a comparison screenshot. This pipeline uses captured RGB only; it does not read engine depth/motion buffers, and it is not yet a live-game temporal neural renderer.
