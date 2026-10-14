@@ -2327,7 +2327,7 @@ class GameHubApp:
                         "game": game.name if game else None,
                         "game_window_found": False,
                         "fps": None,
-                        "fps_source": "native per-present ETW telemetry is not connected",
+                        "fps_source": "Bundled PresentMon has not produced a frame event yet",
                         "monitor_error": type(exc).__name__,
                     }
                 self.events.put(("metrics", metrics))
@@ -2534,7 +2534,7 @@ class GameHubApp:
                 "automatic_upload": False,
                 "depth_buffer_collected": False,
                 "motion_vectors_collected": False,
-                "fps_note": "FPS values are unavailable until native per-present ETW telemetry is integrated.",
+                "fps_note": "FPS and frametime are read from the bundled PresentMon ETW collector when available. Unavailable values remain null; Windows Performance Log permissions may be required.",
             },
             "consent": {
                 "policy_version": "2026-10-14",
