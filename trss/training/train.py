@@ -188,17 +188,23 @@ def _run_epoch(
     optimizer: torch.optim.Optimizer | None,
     patch_size: int,
     amp: bool,
-) -> float:
+) -> dict[str, float]:
+    """Run one pass and compare the network against the bicubic baseline."""
     training = optimizer is not None
     model.train(training)
-    total_loss = 0.0
+    totals = {
+        "loss": 0.0,
+        "mae": 0.0,
+        "mse": 0.0,
+        "bicubic_mae": 0.0,
+        "bicubic_mse": 0.0,
+    }
     sample_count = 0
 
     for batch in loader:
         # Random crops and augmentation are used only for training. Validation
         # deterministically visits every region of each frame in bounded patches.
-        # Stream validation tiles one at a time; building a list would duplicate
-        # large crops in system RAM for every full-resolution validation frame.
+        # Stream validation tiles one at a time to keep host RAM bounded.
         crops = (
             (_crop_batch(batch, patch_size, random_crop=True),)
             if training
@@ -218,7 +224,7 @@ def _run_epoch(
             with torch.set_grad_enabled(training):
                 with _autocast_context(device, amp):
                     raw_head = model(features)
-                # Composition and loss stay FP32 to reduce numerical instability.
+                # Composition and losses stay FP32 to reduce numerical instability.
                 prediction = compose_prediction(
                     raw_head.float(), current.float(), history.float(), history_valid.float()
                 )
@@ -237,13 +243,40 @@ def _run_epoch(
                     )
                     optimizer.step()
 
+            # Report direct image metrics as well as the training objective. These
+            # expose when a lower objective still fails to beat simple interpolation.
+            with torch.no_grad():
+                baseline = F.interpolate(
+                    current.float(),
+                    scale_factor=2,
+                    mode="bicubic",
+                    align_corners=False,
+                ).clamp(0.0, 1.0)
+                prediction_error = prediction.detach() - target.float()
+                baseline_error = baseline - target.float()
+                batch_metrics = {
+                    "loss": loss.detach(),
+                    "mae": prediction_error.abs().mean(),
+                    "mse": prediction_error.square().mean(),
+                    "bicubic_mae": baseline_error.abs().mean(),
+                    "bicubic_mse": baseline_error.square().mean(),
+                }
+
             batch_samples = int(features.shape[0])
-            total_loss += float(loss.detach().cpu()) * batch_samples
+            for name, value in batch_metrics.items():
+                totals[name] += float(value.float().cpu()) * batch_samples
             sample_count += batch_samples
 
     if sample_count == 0:
         raise RuntimeError("The selected dataset has no training batches.")
-    return total_loss / sample_count
+
+    mean = {name: value / sample_count for name, value in totals.items()}
+    # RGB targets are normalized to [0, 1], so peak signal is 1.0.
+    mean["psnr_db"] = -10.0 * math.log10(max(mean["mse"], 1e-12))
+    mean["bicubic_psnr_db"] = -10.0 * math.log10(max(mean["bicubic_mse"], 1e-12))
+    del mean["mse"]
+    del mean["bicubic_mse"]
+    return mean
 
 
 def _cpu_tree(value: Any) -> Any:
@@ -492,7 +525,7 @@ def main() -> int:
         used_learning_rate = _set_learning_rate(
             optimizer, base_learning_rate, epoch, args.epochs
         )
-        train_loss = _run_epoch(
+        train_metrics = _run_epoch(
             model,
             train_loader,
             device,
@@ -500,9 +533,9 @@ def main() -> int:
             patch_size=args.patch_size,
             amp=args.amp,
         )
-        validation_loss = None
+        validation_metrics = None
         if validation_loader is not None:
-            validation_loss = _run_epoch(
+            validation_metrics = _run_epoch(
                 model,
                 validation_loader,
                 device,
@@ -510,6 +543,10 @@ def main() -> int:
                 patch_size=args.patch_size,
                 amp=False,
             )
+        train_loss = train_metrics["loss"]
+        validation_loss = (
+            validation_metrics["loss"] if validation_metrics is not None else None
+        )
 
         # A separate validation manifest is preferred; without one, best is based
         # on augmented training patches and is not a reliable generalization score.
@@ -521,7 +558,23 @@ def main() -> int:
         epoch_record = {
             "epoch": epoch,
             "train_loss": train_loss,
+            "train_mae": train_metrics["mae"],
+            "train_psnr_db": train_metrics["psnr_db"],
             "validation_loss": validation_loss,
+            "validation_mae": (
+                validation_metrics["mae"] if validation_metrics is not None else None
+            ),
+            "validation_psnr_db": (
+                validation_metrics["psnr_db"] if validation_metrics is not None else None
+            ),
+            "validation_bicubic_mae": (
+                validation_metrics["bicubic_mae"]
+                if validation_metrics is not None else None
+            ),
+            "validation_bicubic_psnr_db": (
+                validation_metrics["bicubic_psnr_db"]
+                if validation_metrics is not None else None
+            ),
             "learning_rate": used_learning_rate,
             "epoch_seconds": perf_counter() - epoch_started,
             "validation_tiled_full_frames": validation_loader is not None,

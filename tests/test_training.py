@@ -114,6 +114,30 @@ def test_validation_tiles_cover_full_frame_edges():
     assert training._tile_starts(11, 4) == [0, 4, 7]
 
 
+def test_validation_reports_neural_and_bicubic_image_metrics(tmp_path):
+    manifest = _make_dataset_files(tmp_path)
+    dataset = TrSSFrameDataset(manifest)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    model = TrSSTemporalSR(channels=8, blocks=1, context_blocks=0)
+
+    metrics = training._run_epoch(
+        model,
+        loader,
+        torch.device("cpu"),
+        optimizer=None,
+        patch_size=4,
+        amp=False,
+    )
+
+    assert set(metrics) == {
+        "loss", "mae", "psnr_db", "bicubic_mae", "bicubic_psnr_db"
+    }
+    # The fresh output head is deliberately neutral, so the model initially is
+    # exactly the bicubic baseline on reset frames.
+    assert metrics["mae"] == pytest.approx(metrics["bicubic_mae"], abs=1e-6)
+    assert metrics["psnr_db"] == pytest.approx(metrics["bicubic_psnr_db"], abs=1e-6)
+
+
 def test_training_can_resume_from_last_checkpoint(tmp_path, monkeypatch):
     manifest = _make_dataset_files(tmp_path)
     output = tmp_path / "weights"
