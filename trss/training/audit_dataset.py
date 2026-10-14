@@ -363,7 +363,7 @@ def audit_manifests(
             "history_reset_frames": reset_frames,
             "frames_with_motion_components_clipped_by_training_scale": clipping_frames,
             "duplicate_pixel_groups_by_field": duplicates,
-            "frames": row_details,
+            "frame_details": row_details,
         }
 
     overlap = sorted(scene_sets["training"].intersection(scene_sets["validation"]))
