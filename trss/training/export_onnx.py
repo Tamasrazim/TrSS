@@ -97,7 +97,7 @@ def export_checkpoint_to_onnx(
     except ImportError as exc:
         raise RuntimeError(
             "ONNX export dependencies are missing. Install TrSS with "
-            "'python -m pip install -e ".[export]" and retry."
+            'python -m pip install -e ".[export]" and retry.'
         ) from exc
 
     output.parent.mkdir(parents=True, exist_ok=True)
