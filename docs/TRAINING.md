@@ -77,7 +77,7 @@ Training writes \`checkpoint-last.pt\`, \`checkpoint-best.pt\`, and \`training-r
 python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/trss-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
 \`\`\`
 
-For a non-reset frame, also pass \`--history\` and \`--history-valid\`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case. The report includes checkpoint SHA-256, model settings, inference time, full offline frame-path time, and a labelled FPS-equivalent estimate. It is not a measurement of in-game FPS.
+For a non-reset frame, also pass \`--history\` and \`--history-valid\`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case. The report separates input setup, isolated model inference, model-plus-composition timing, output encoding/writing, and total benchmark-call elapsed time. The FPS-equivalent estimate uses repeated model-plus-composition timing only; it excludes live capture, file decoding, input setup, device transfer, and output encoding. It is not a full-pipeline or in-game FPS measurement.
 
 ## What this does not do yet
 
