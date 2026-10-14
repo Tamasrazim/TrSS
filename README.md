@@ -51,7 +51,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
 - **Offline temporal sequence runner:** `render-sequence` reads an explicit JSONL manifest, processes recorded frames in order, carries normalized RGB history only across continuous frames, and resets history after camera cuts, scene/resolution changes, gaps, or stale timestamps. Required depth/motion inputs must be real files; after a history reset, a model that needs history requires an explicit `initial_history` seed.
-- **Opt-in TrSS Data Recorder (`trss-recorder`):** a Windows desktop UI captures short lossless PNG sequences from one selected application window, records elapsed timestamps and a limited GPU/driver profile, and creates a local ZIP with a JSONL manifest and SHA-256 checksums. It does not upload, record audio, inspect game memory, or fabricate depth/motion. A screen-capture bundle alone is not a supervised training dataset.
+- **TrSS Game Library (`trss-recorder`):** a Windows game grid discovers Steam/Epic installs and games in common or user-selected folders, extracts each executable's icon, launches games from their cards, and shows a click-through performance overlay. Participants can manually start an unlimited-duration local capture; bundles include PNG frames, performance JSONL, a sequence manifest, hardware profile, and SHA-256 checksums. FPS stays explicitly unavailable until a native per-present ETW reader is connected.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
@@ -79,18 +79,18 @@ OpenVINO GPU support also depends on a compatible Intel graphics driver and the 
 
 ## Commands
 
-### Collect an opt-in visual sample (Windows 10/11)
+### Launch games and collect an opt-in sample (Windows 10/11)
 
-Install TrSS and launch the desktop collector:
+Install TrSS and launch the game library:
 
 ```powershell
 python -m pip install -e .
 trss-recorder
 ```
 
-Select and preview the target application window, confirm that you have permission to share its visible content, then capture a short sample. The app saves lossless PNG frames, measured timestamps, a limited local hardware/driver profile, a JSONL sequence manifest, and a verified ZIP. It never uploads the bundle. See [the recorder guide](docs/RECORDER.md) for privacy details, limitations, participant instructions, and the portable EXE build.
+Select a detected game card to launch it. The library extracts the icon from that game's executable and tints its ambient background as cards are hovered. During gameplay, the always-on-top click-through overlay shows available CPU, GPU 3D, VRAM, and memory counters. Check the consent boxes before collecting samples; press Ctrl+Alt+F8 to start/stop an unlimited-duration session, Ctrl+Alt+F10 to stop, and Ctrl+Alt+F9 to restore the library. See [the game library guide](docs/RECORDER.md).
 
-**Research limitation:** this is visible-window capture, not a game-renderer hook. It does not extract real depth, motion vectors, temporal history, or paired reference renders, so its bundles are suitable for visual review and compatibility research—not standalone supervised-model training.
+**Research limitation:** screenshot capture is not renderer-buffer capture. Per-present FPS/frametime is not yet measured; the overlay labels it unavailable rather than estimating it. The sample does not extract depth, motion vectors, temporal history, or paired reference renders, so the bundle is useful for visual/performance research, not standalone supervised-model training.
 
 ### Identify the actual adapter
 
