@@ -21,6 +21,7 @@ test = ["pytest>=8.0"]
 [project.scripts]
 trss = "trss.cli:main"
 trss-split-dataset = "trss.training.split_manifest:main"
+trss-audit-dataset = "trss.training.audit_dataset:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]

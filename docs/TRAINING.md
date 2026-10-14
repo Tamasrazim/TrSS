@@ -57,6 +57,26 @@ python -m trss.training.split_manifest --input-manifest data/all-frames.jsonl --
 
 The installed `trss-split-dataset` command runs the same tool. Its JSON report lists which scenes and frame counts went into each split. The requested fraction is approximate because complete scenes are indivisible; use more balanced capture-sequence sizes when you need closer proportions. The tool only organizes existing records: it does not generate paired renders, validate visual alignment, synthesize depth/motion, or train weights. Existing output manifests are protected unless `--force` is supplied.
 
+### Audit the actual training inputs before training
+
+Run the structural audit on the generated manifests. It decodes each input/reference image, checks that every reference is exactly 2× the input resolution, validates depth, motion, and optional temporal-history shapes/ranges, reports motion values that will be clipped by the configured scale, and compares decoded pixels across the two splits. Pixel hashing also catches exact duplicates that were saved under different file names.
+
+```powershell
+python -m trss.training.audit_dataset --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --provenance-json data/provenance.json --report logs/dataset-audit.json --motion-scale-px 64
+```
+
+The provenance file must be a JSON object with non-empty `dataset_name`, `source`, and `license` fields, for example:
+
+```json
+{
+  "dataset_name": "My capture set",
+  "source": "Original renders from my own scene",
+  "license": "Original work; assets and capture permitted for this use"
+}
+```
+
+The installed `trss-audit-dataset` command runs the same audit. It returns a non-zero exit code when structural errors or split leakage are found and writes the full JSON report, including per-frame dimensions, depth/motion statistics, and history-valid coverage. If provenance is omitted, the audit warns that licensing and origin are unverified. This is not a visual alignment or legal review: inspect example pairs and verify every asset's terms yourself.
+
 ## Start training
 
 \`\`\`powershell
