@@ -31,6 +31,7 @@ constexpr std::uint64_t kMaxFrameBytes = 512ULL * 1024ULL * 1024ULL;
 struct Options {
     bool list = false, force = false, help = false, has_out = false, has_test = false;
     fs::path out, test_png;
+    std::wstring game_label = L"unspecified";
     int adapter = 0, monitor = 0, fps = 30, max_frames = 300;
     double seconds = 5.0;
 };
@@ -125,6 +126,11 @@ static Options parse(int argc, wchar_t** argv) {
         else if (arg == L"--list-devices") o.list = true;
         else if (arg == L"--force") o.force = true;
         else if (arg == L"--output-dir") { o.out = value_for(i,argc,argv,L"--output-dir"); o.has_out=true; }
+        else if (arg == L"--game") {
+            o.game_label = value_for(i,argc,argv,L"--game");
+            if (o.game_label.empty() || o.game_label.size() > 100)
+                throw std::runtime_error("--game must be a non-empty label of at most 100 characters.");
+        }
         else if (arg == L"--self-test-png") { o.test_png=value_for(i,argc,argv,L"--self-test-png"); o.has_test=true; }
         else if (arg == L"--adapter") o.adapter=parse_int(value_for(i,argc,argv,L"--adapter"),L"--adapter");
         else if (arg == L"--monitor") o.monitor=parse_int(value_for(i,argc,argv,L"--monitor"),L"--monitor");
@@ -149,6 +155,7 @@ static void help() {
       << L"TrSS Desktop Capture - DXGI Desktop Duplication sampler\n\n"
       << L"  --list-devices              List adapter and monitor indexes\n"
       << L"  --output-dir <folder>       New capture folder (required to record)\n"
+      << L"  --game <name>               User-supplied game label saved to session.json\n"
       << L"  --adapter <index>           DXGI adapter index (default 0)\n"
       << L"  --monitor <index>           Output index on that adapter (default 0)\n"
       << L"  --seconds <n>               0.1 to 600 seconds (default 5)\n"
@@ -156,6 +163,7 @@ static void help() {
       << L"  --max-frames <n>            1 to 36000 frame cap (default 300)\n"
       << L"  --force                     Replace a previous TrSS capture folder only\n"
       << L"  --self-test-png <file>      Test PNG encoding without desktop capture\n\n"
+      << L"The game label is user-supplied; no game process is inspected.\n"
       << L"This is color-only desktop capture. It does not read game depth, motion,\n"
       << L"history, ground-truth renders, or private render targets.\n";
 }
@@ -375,6 +383,8 @@ static void write_report(const fs::path& root, const OutputChoice& choice, const
     if (!report) throw std::runtime_error("Could not create session.json.");
     report << "{\n"
       << "  \"format\":\"trss-desktop-capture-session-v1\",\n"
+      << "  \"game_label\":\"" << escaped(utf8(o.game_label)) << "\",\n"
+      << "  \"game_label_source\":\"user-supplied; no game-process detection\",\n"
       << "  \"capture_api\":\"DXGI Desktop Duplication with Direct3D 11 CPU readback\",\n"
       << "  \"started_utc\":\"" << escaped(start_utc) << "\",\n"
       << "  \"finished_utc\":\"" << escaped(end_utc) << "\",\n"
@@ -439,7 +449,8 @@ static void capture(const Options& o) {
     int frames=0,skipped=0;
     bool have_pixels=false;
     std::wcout << L"Sampling " << w << L"x" << h << L" from "
-      << choice.adapter_desc.Description << L" / " << choice.output_desc.DeviceName << L"\n";
+      << choice.adapter_desc.Description << L" / " << choice.output_desc.DeviceName
+      << L" (label: " << o.game_label << L")\n";
 
     while (Clock::now()<deadline && frames<o.max_frames) {
         auto now=Clock::now();

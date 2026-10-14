@@ -223,7 +223,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Import game recordings, train TrSS spatial SR, and write a local comparison gallery."
     )
-    parser.add_argument("videos", nargs="+", help="At least two separate recordings or video folders.")
+    parser.add_argument(
+        "videos", nargs="+",
+        help="At least two video recordings or TrSS desktop-capture session folders."
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--game", default="unspecified", help="Label recorded footage (for the report).")
     parser.add_argument("--sample-every", type=int, default=15)
