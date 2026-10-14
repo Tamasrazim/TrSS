@@ -117,8 +117,8 @@ def _timing_summary(values: list[float]) -> dict[str, float]:
 def _append_telemetry_jsonl(path: Path, payload: dict[str, Any]) -> None:
     """Append a complete run as one JSONL record for longitudinal comparisons."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", newline="\\n") as stream:
-        stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\\n")
+    with path.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n")
         stream.flush()
 
 
