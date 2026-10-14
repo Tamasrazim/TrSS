@@ -1,8 +1,8 @@
 """Audit TrSS paired-render manifests before training.
 
-Checks file decoding, 2x target dimensions, auxiliary tensor contracts, scene
-separation, and exact pixel duplicates across training/validation manifests.
-It does not judge whether two images are semantically aligned.
+Checks image/tensor contracts, scene separation, exact and approximate cross-split
+duplicates, and a downsampled-target consistency proxy. The proxy helps prioritize
+manual inspection; it cannot prove that input and target images are correctly aligned.
 """
 
 from __future__ import annotations
@@ -313,6 +313,33 @@ def _audit_row(
                 f"the input size {(low_width, low_height)}."
             )
 
+        # A rough pair-consistency signal: compare the actual low-resolution
+        # input with the reference target reduced to the same dimensions.
+        # Different renderers, filters, anti-aliasing, and exposure can legitimately
+        # produce sizeable differences, so these numbers are diagnostic only.
+        downsampled_target = np.asarray(
+            Image.fromarray(target_rgb, mode="RGB").resize(
+                (low_width, low_height), Image.Resampling.BOX
+            ),
+            dtype=np.float32,
+        )
+        pair_error = low_rgb.astype(np.float32) - downsampled_target
+        pair_mae = float(np.mean(np.abs(pair_error)))
+        pair_rmse = float(np.sqrt(np.mean(np.square(pair_error))))
+        pair_psnr = (
+            None
+            if pair_rmse == 0.0
+            else float(20.0 * math.log10(255.0 / pair_rmse))
+        )
+        detail["pair_consistency"] = {
+            "comparison": "low_res versus BOX-downsampled target",
+            "downsample_filter": "BOX",
+            "mae_rgb_levels_0_255": pair_mae,
+            "rmse_rgb_levels_0_255": pair_rmse,
+            "psnr_db": pair_psnr,
+            "perfect_match": pair_rmse == 0.0,
+        }
+
         detail["depth"] = _read_depth(Path(resolved["depth"]), low_height, low_width)
         detail["motion"] = _read_motion(
             Path(resolved["motion"]), low_height, low_width, motion_scale_px
@@ -501,6 +528,15 @@ def audit_manifests(
             and row["motion"]["component_fraction_clipped_by_training_scale"] > 0
             for row in row_details
         )
+        pair_metrics = [
+            row["pair_consistency"] for row in row_details
+            if isinstance(row.get("pair_consistency"), dict)
+        ]
+        finite_psnr = [
+            metric["psnr_db"] for metric in pair_metrics
+            if isinstance(metric.get("psnr_db"), (int, float))
+            and math.isfinite(metric["psnr_db"])
+        ]
         hashes[split_name] = split_hashes
         perceptual_hashes[split_name] = split_perceptual_hashes
         duplicates = _index_duplicates(split_hashes, split_name, errors, warnings)
@@ -515,6 +551,24 @@ def audit_manifests(
             },
             "history_reset_frames": reset_frames,
             "frames_with_motion_components_clipped_by_training_scale": clipping_frames,
+            "pair_consistency_summary": {
+                "comparison": "low_res versus BOX-downsampled target",
+                "frames_compared": len(pair_metrics),
+                "mean_mae_rgb_levels_0_255": (
+                    float(np.mean([metric["mae_rgb_levels_0_255"] for metric in pair_metrics]))
+                    if pair_metrics else None
+                ),
+                "mean_rmse_rgb_levels_0_255": (
+                    float(np.mean([metric["rmse_rgb_levels_0_255"] for metric in pair_metrics]))
+                    if pair_metrics else None
+                ),
+                "mean_psnr_db_excluding_perfect_matches": (
+                    float(np.mean(finite_psnr)) if finite_psnr else None
+                ),
+                "perfect_match_frames": sum(
+                    metric["perfect_match"] for metric in pair_metrics
+                ),
+            },
             "duplicate_pixel_groups_by_field": duplicates,
             "frame_details": row_details,
         }

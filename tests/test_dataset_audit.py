@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from trss.training.audit_dataset import audit_manifests
@@ -76,6 +77,17 @@ def test_audit_passes_valid_separated_manifests_and_reports_statistics(tmp_path)
     assert report["splits"]["training"]["frames"] == 2
     assert report["splits"]["validation"]["input_dimensions_and_counts"] == {"4x3": 1}
     assert report["splits"]["training"]["history_reset_frames"] == 2
+    pair_summary = report["splits"]["training"]["pair_consistency_summary"]
+    assert pair_summary["frames_compared"] == 2
+    assert pair_summary["mean_mae_rgb_levels_0_255"] == 1.0
+    assert pair_summary["mean_rmse_rgb_levels_0_255"] == 1.0
+    assert pair_summary["mean_psnr_db_excluding_perfect_matches"] == pytest.approx(
+        20 * np.log10(255)
+    )
+    first_pair = report["splits"]["training"]["frame_details"][0]["pair_consistency"]
+    assert first_pair["downsample_filter"] == "BOX"
+    assert first_pair["mae_rgb_levels_0_255"] == 1.0
+    assert first_pair["perfect_match"] is False
     assert report["provenance"]["license"] == "test-only"
     saved = json.loads((tmp_path / "audit.json").read_text(encoding="utf-8"))
     assert saved["passed"] is True
@@ -210,3 +222,38 @@ def test_audit_rejects_invalid_near_duplicate_thresholds(tmp_path):
         assert "from 0 to 16" in str(error)
     else:
         raise AssertionError("expected invalid near-duplicate threshold to be rejected")
+
+
+
+def test_pair_consistency_marks_exact_downsample_match_without_infinite_json(tmp_path):
+    row = _make_row(tmp_path, "scene-a", 0, 80)
+    # Make the reference an exact flat-color match after BOX downsampling.
+    _save_rgb(tmp_path / row["target"], 6, 8, 80)
+    train = _write_manifest(tmp_path / "train.jsonl", [row])
+    validation = _write_manifest(
+        tmp_path / "validation.jsonl", [_make_row(tmp_path, "scene-b", 0, 150)]
+    )
+
+    report = audit_manifests(train, validation, tmp_path / "audit.json")
+    details = report["splits"]["training"]["frame_details"][0]["pair_consistency"]
+    summary = report["splits"]["training"]["pair_consistency_summary"]
+
+    assert details["perfect_match"] is True
+    assert details["psnr_db"] is None
+    assert summary["perfect_match_frames"] == 1
+    saved = json.loads((tmp_path / "audit.json").read_text(encoding="utf-8"))
+    assert saved["splits"]["training"]["frame_details"][0]["pair_consistency"]["psnr_db"] is None
+
+
+def test_pair_consistency_is_not_reported_when_scale_contract_fails(tmp_path):
+    row = _make_row(tmp_path, "scene-a", 0, 40)
+    _save_rgb(tmp_path / row["target"], 5, 8, 41)
+    train = _write_manifest(tmp_path / "train.jsonl", [row])
+    validation = _write_manifest(
+        tmp_path / "validation.jsonl", [_make_row(tmp_path, "scene-b", 0, 90)]
+    )
+
+    report = audit_manifests(train, validation, tmp_path / "audit.json")
+
+    assert "pair_consistency" not in report["splits"]["training"]["frame_details"][0]
+    assert report["splits"]["training"]["pair_consistency_summary"]["frames_compared"] == 0
