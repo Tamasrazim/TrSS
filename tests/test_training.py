@@ -114,6 +114,31 @@ def test_validation_tiles_cover_full_frame_edges():
     assert training._tile_starts(11, 4) == [0, 4, 7]
 
 
+def test_split_overlap_rejects_the_same_reference_frame(tmp_path):
+    manifest = _make_dataset_files(tmp_path)
+    train_set = TrSSFrameDataset(manifest)
+    validation_set = TrSSFrameDataset(manifest)
+    with pytest.raises(ValueError, match="reuse at least one exact target frame"):
+        training._check_split_overlap(train_set, validation_set)
+
+
+def test_preflight_validates_dataset_without_gpu_or_output_directory(tmp_path, monkeypatch):
+    manifest = _make_dataset_files(tmp_path)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train",
+            "--train-manifest", str(manifest),
+            "--preflight-only",
+            "--device", "xpu",
+            "--batch-size", "1",
+        ],
+    )
+
+    assert training.main() == 0
+    # Preflight is read-only: it should not demand an XPU or create model files.
+
+
 def test_validation_reports_neural_and_bicubic_image_metrics(tmp_path):
     manifest = _make_dataset_files(tmp_path)
     dataset = TrSSFrameDataset(manifest)

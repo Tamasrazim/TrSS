@@ -279,6 +279,70 @@ def _run_epoch(
     return mean
 
 
+def _check_split_overlap(
+    train_set: TrSSFrameDataset, validation_set: TrSSFrameDataset | None
+) -> None:
+    """Reject exact target-frame reuse across training and validation manifests."""
+    if validation_set is None:
+        return
+    train_targets = {row["target"] for row in train_set.rows}
+    validation_targets = {row["target"] for row in validation_set.rows}
+    overlap = train_targets.intersection(validation_targets)
+    if overlap:
+        example = str(sorted(overlap)[0])
+        raise ValueError(
+            "Training and validation manifests reuse at least one exact target frame. "
+            f"Move it to only one split; example: {example}"
+        )
+
+
+def _preflight_dataset(
+    name: str, dataset: TrSSFrameDataset, *, require_uniform_dimensions: bool
+) -> dict[str, Any]:
+    """Decode every frame pair before training and summarize the actual data."""
+    dimensions: dict[str, int] = {}
+    frames_without_valid_history = 0
+    depth_min = float("inf")
+    depth_max = float("-inf")
+    max_normalized_motion = 0.0
+
+    for index in range(len(dataset)):
+        sample = dataset[index]
+        for tensor_name, tensor in sample.items():
+            if not bool(torch.isfinite(tensor).all()):
+                raise ValueError(
+                    f"{name} sample {index + 1} contains non-finite values in {tensor_name}."
+                )
+
+        _, height, width = sample["low_res"].shape
+        size_key = f"{width}x{height}"
+        dimensions[size_key] = dimensions.get(size_key, 0) + 1
+        if not bool((sample["history_valid"] > 0).any()):
+            frames_without_valid_history += 1
+
+        depth = sample["features"][3]
+        depth_min = min(depth_min, float(depth.min()))
+        depth_max = max(depth_max, float(depth.max()))
+        max_normalized_motion = max(
+            max_normalized_motion, float(sample["features"][4:6].abs().max())
+        )
+
+    if require_uniform_dimensions and len(dimensions) > 1:
+        raise ValueError(
+            f"{name} contains mixed input resolutions {sorted(dimensions)}. "
+            "Use --batch-size 1 or group each resolution into its own manifest."
+        )
+
+    return {
+        "frames": len(dataset),
+        "low_resolution_dimensions": dict(sorted(dimensions.items())),
+        "frames_without_valid_history_pixels": frames_without_valid_history,
+        "normalized_depth_range": [depth_min, depth_max],
+        "max_abs_normalized_motion": max_normalized_motion,
+        "all_tensors_finite": True,
+    }
+
+
 def _cpu_tree(value: Any) -> Any:
     """Move tensors nested in optimizer state to CPU for portable checkpoints."""
     if isinstance(value, torch.Tensor):
@@ -324,7 +388,9 @@ def main() -> int:
     )
     parser.add_argument("--train-manifest", required=True, type=Path)
     parser.add_argument("--validation-manifest", type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="validate every dataset item and exit without training")
     parser.add_argument("--resume", type=Path, help="resume from checkpoint-last.pt")
     parser.add_argument("--device", default="auto", help="auto, xpu, cuda, or cpu")
     parser.add_argument("--channels", type=int, default=48)
@@ -347,16 +413,15 @@ def main() -> int:
         parser.error("learning-rate must be finite and greater than zero.")
     if not (math.isfinite(args.motion_scale_px) and args.motion_scale_px > 0):
         parser.error("motion-scale-px must be finite and greater than zero.")
+    if args.preflight_only and args.resume:
+        parser.error("--resume cannot be combined with --preflight-only.")
+    if not args.preflight_only and args.output_dir is None:
+        parser.error("--output-dir is required unless --preflight-only is used.")
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         torch.xpu.manual_seed_all(args.seed)
-
-    device = _resolve_device(args.device)
-    if args.amp:
-        # Fail before loading the dataset if the chosen device cannot run BF16.
-        _autocast_context(device, True)
 
     train_path = args.train_manifest.expanduser().resolve()
     validation_path = (
@@ -370,6 +435,40 @@ def main() -> int:
         if validation_path is not None
         else None
     )
+    try:
+        _check_split_overlap(train_set, validation_set)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if args.preflight_only:
+        try:
+            train_summary = _preflight_dataset(
+                "training", train_set,
+                require_uniform_dimensions=args.batch_size > 1,
+            )
+            validation_summary = (
+                _preflight_dataset(
+                    "validation", validation_set, require_uniform_dimensions=False
+                )
+                if validation_set is not None else None
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.error(f"dataset preflight failed: {exc}")
+        print(json.dumps({
+            "preflight": "passed",
+            "training": train_summary,
+            "validation": validation_summary,
+            "notice": (
+                "Preflight validates the files and tensor contracts; it does not "
+                "establish that the target renders are high quality or correctly paired."
+            ),
+        }, indent=2, allow_nan=False))
+        return 0
+
+    device = _resolve_device(args.device)
+    if args.amp:
+        # Fail before model creation if the chosen device cannot run BF16.
+        _autocast_context(device, True)
 
     train_generator = torch.Generator().manual_seed(args.seed)
     validation_generator = torch.Generator().manual_seed(args.seed + 1)
