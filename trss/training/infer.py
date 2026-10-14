@@ -89,6 +89,7 @@ def run_frame(
     report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the trained network; history must already be reprojected to this frame."""
+    call_started = perf_counter()
     checkpoint_file = Path(checkpoint_path).expanduser().resolve()
     color_file = Path(color_path).expanduser().resolve()
     depth_file = Path(depth_path).expanduser().resolve()
@@ -109,6 +110,7 @@ def run_frame(
     if not np.isfinite(motion_scale_px) or motion_scale_px <= 0:
         raise ValueError("motion_scale_px must be finite and greater than zero.")
 
+    input_setup_started = perf_counter()
     color = _read_rgb(color_file)
     height, width, _ = color.shape
     depth = _read_depth(depth_file, height, width)
@@ -152,10 +154,11 @@ def run_frame(
     current_tensor = current_tensor.unsqueeze(0).to(device)
     history_tensor = history_tensor.unsqueeze(0).to(device)
     valid_tensor = valid_tensor.unsqueeze(0).to(device)
+    input_setup_ms = (perf_counter() - input_setup_started) * 1000.0
 
-    # Separate neural inference time from the complete output-composition path.
+    # Keep steady-state device work separate from input preparation and file I/O.
     inference_times: list[float] = []
-    frame_times: list[float] = []
+    model_composition_times: list[float] = []
     output: torch.Tensor | None = None
     with torch.inference_mode():
         for index in range(warmup + iterations):
@@ -174,17 +177,22 @@ def run_frame(
             frame_ms = (perf_counter() - started) * 1000.0
             if index >= warmup:
                 inference_times.append(inference_ms)
-                frame_times.append(frame_ms)
+                model_composition_times.append(frame_ms)
 
     assert output is not None
+    output_write_started = perf_counter()
     output_array = (
         output[0].detach().cpu().permute(1, 2, 0).numpy().clip(0.0, 1.0) * 255.0
     ).round().astype(np.uint8)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(output_array, mode="RGB").save(output_file)
+    output_write_ms = (perf_counter() - output_write_started) * 1000.0
 
-    sorted_frame_times = sorted(frame_times)
-    p95_index = min(len(sorted_frame_times) - 1, int(np.ceil(0.95 * len(sorted_frame_times))) - 1)
+    sorted_model_composition_times = sorted(model_composition_times)
+    p95_index = min(
+        len(sorted_model_composition_times) - 1,
+        int(np.ceil(0.95 * len(sorted_model_composition_times))) - 1,
+    )
     info: dict[str, Any] = {
         "format": MODEL_FORMAT,
         "device": str(device),
@@ -198,13 +206,22 @@ def run_frame(
         "history_supplied": history_path is not None,
         "warmup_iterations": warmup,
         "measured_iterations": iterations,
+        "input_setup_ms": input_setup_ms,
         "mean_inference_ms": mean(inference_times),
-        "mean_frame_path_ms": mean(frame_times),
-        "median_frame_path_ms": float(np.median(frame_times)),
-        "p95_frame_path_ms": float(sorted_frame_times[p95_index]),
-        "offline_fps_equivalent": 1000.0 / mean(frame_times),
+        "mean_model_composition_ms": mean(model_composition_times),
+        "median_model_composition_ms": float(np.median(model_composition_times)),
+        "p95_model_composition_ms": float(
+            sorted_model_composition_times[p95_index]
+        ),
+        "model_composition_fps_equivalent": 1000.0 / mean(model_composition_times),
+        "output_encode_write_ms": output_write_ms,
+        "benchmark_call_elapsed_ms": (perf_counter() - call_started) * 1000.0,
         "output": str(output_file),
-        "note": "Offline frame timing; not in-game FPS or proof of Arc performance.",
+        "note": (
+            "Steady-state measurements cover model execution and output composition. "
+            "FPS-equivalent excludes capture, file decoding, input setup, device transfer, "
+            "and output encoding; it is not in-game FPS or proof of Arc performance."
+        ),
     }
     if report_path is not None:
         report_file = Path(report_path).expanduser().resolve()
