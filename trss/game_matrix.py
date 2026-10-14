@@ -441,6 +441,20 @@ def build_matrix_row(
         for field in values if values[field] is not None
     }
     missing = [field for field, value in values.items() if value is None]
+    # Several engines store enum indices (for example TextureQuality=3) instead
+    # of names. Keep the raw number for traceability, but never call it exact until
+    # the participant replaces it with the value shown by the game's own menu.
+    literal_numeric_fields = {
+        "game_build", "refresh_rate_hz", "target_fps",
+        "render_scale_percent", "field_of_view_degrees",
+    }
+    unresolved_numeric = [
+        field for field, value in values.items()
+        if value is not None
+        and field not in literal_numeric_fields
+        and re.fullmatch(r"[+-]?\\d+(?:\\.\\d+)?", value.strip())
+        and sources.get(field) in {"local_game_config", "imported_local_config"}
+    ]
     verified = bool(graphics_profile.get("verified_in_game"))
     settings_identity = {
         "game": _key(game_name),
@@ -465,7 +479,8 @@ def build_matrix_row(
         summaries[f"average_{key}"] = round(sum(samples) / len(samples), 6) if samples else None
         summaries[f"sample_count_{key}"] = len(samples)
 
-    known = len(STANDARD_SETTINGS) - len(missing)
+    incomplete_fields = sorted(set(missing) | set(unresolved_numeric))
+    known = len(STANDARD_SETTINGS) - len(incomplete_fields)
     return {
         "schema_version": "trss.graphics-matrix/1.0",
         "session_id": session_id,
@@ -475,13 +490,14 @@ def build_matrix_row(
         "profile_name": str(graphics_profile.get("profile_name") or "Unlabelled run")[:120],
         "experiment_group": str(graphics_profile.get("experiment_group") or "")[:120],
         "profile_verified_in_game": verified,
-        "matrix_row_exact": bool(verified and not missing),
-        "matrix_row_complete": not missing,
+        "matrix_row_exact": bool(verified and not incomplete_fields),
+        "matrix_row_complete": not incomplete_fields,
         "settings_coverage": {
             "known_standard_settings": known,
             "total_standard_settings": len(STANDARD_SETTINGS),
             "coverage_percent": round(100 * known / len(STANDARD_SETTINGS), 2),
             "missing_settings": missing,
+            "settings_needing_value_decoding": unresolved_numeric,
         },
         "settings_hash_sha256": settings_hash,
         "settings": values,
@@ -548,7 +564,8 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
         "average_system_cpu_percent", "average_game_gpu_percent",
         "average_system_gpu_percent", "average_game_ram_bytes",
         "average_game_dedicated_gpu_bytes", *STANDARD_SETTINGS.keys(),
-        "additional_game_settings_json", "missing_settings_json", "participant_notes",
+        "additional_game_settings_json", "missing_settings_json",
+        "settings_needing_value_decoding_json", "participant_notes",
     ]
     temporary = csv_path.with_suffix(".csv.tmp")
     with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
@@ -575,6 +592,7 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
                 "performance_samples": capture.get("performance_samples"),
                 "additional_game_settings_json": json.dumps(item.get("additional_game_settings") or {}, ensure_ascii=False, sort_keys=True),
                 "missing_settings_json": json.dumps(coverage.get("missing_settings") or [], ensure_ascii=False),
+                "settings_needing_value_decoding_json": json.dumps(coverage.get("settings_needing_value_decoding") or [], ensure_ascii=False),
                 "participant_notes": item.get("participant_notes"),
             }
             for setting in STANDARD_SETTINGS:
