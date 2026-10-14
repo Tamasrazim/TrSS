@@ -178,7 +178,7 @@ python -m trss.training.train --train-manifest data/train.jsonl --validation-man
 python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/trss-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
 ```
 
-This requires your own paired, legally usable renders plus real depth, motion and correctly reprojected history data. No dataset or pretrained weights are included. The new checkpoint format is not yet compatible with \`xmx-frame\`; that needs a separate native implementation.
+This requires your own paired, legally usable renders plus real depth, motion and correctly reprojected history data. No dataset or pretrained weights are included. The new checkpoint format is not yet compatible with `xmx-frame`; that needs a separate native implementation.
 
 ### Evaluate a trained checkpoint against bicubic
 
@@ -186,7 +186,7 @@ This requires your own paired, legally usable renders plus real depth, motion an
 python -m trss.training.evaluate_checkpoint --checkpoint models/trss-quality/checkpoint-best.pt --manifest data/validation.jsonl --output-dir logs/trss-quality-evaluation --device xpu --tile-size 128 --tile-overlap 16
 ~~~
 
-Open \`logs/trss-quality-evaluation/index.html\` to compare the low-resolution input, bicubic upscaling, TrSS prediction, and target image. \`evaluation-report.json\` records aggregate and per-scene/per-frame MAE, RMSE and PSNR plus the exact checkpoint SHA-256 and tile settings. The default evaluates the full supplied manifest. For a development sample, \`--max-frames 12\` picks evenly spaced frames and marks the report as a subset.
+Open `logs/trss-quality-evaluation/index.html` to compare the low-resolution input, bicubic upscaling, TrSS prediction, and target image. `evaluation-report.json` records aggregate and per-scene/per-frame MAE, RMSE and PSNR plus the exact checkpoint SHA-256 and tile settings. The default evaluates the full supplied manifest. For a development sample, `--max-frames 12` picks evenly spaced frames and marks the report as a subset.
 
 These values are calculated against the supplied display-encoded RGB targets. Better metrics on a synthetic pilot do not prove quality on a real game, successful frame capture, or Arc B580 performance. See [the training guide](docs/TRAINING.md) for the metric definitions and limits.
 
