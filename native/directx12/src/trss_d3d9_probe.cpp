@@ -226,9 +226,9 @@ void execute_render_target_roundtrip(IDirect3D9* d3d9, const AdapterInfo& adapte
     }
 
     ComPtr<IDirect3DSurface9> readback;
-    check_hresult(d3d9->CreateOffscreenPlainSurface(
+    check_hresult(device->CreateOffscreenPlainSurface(
         desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &readback, nullptr),
-        "IDirect3D9::CreateOffscreenPlainSurface");
+        "IDirect3DDevice9::CreateOffscreenPlainSurface");
     check_hresult(device->GetRenderTargetData(back_buffer.Get(), readback.Get()),
         "IDirect3DDevice9::GetRenderTargetData");
 
