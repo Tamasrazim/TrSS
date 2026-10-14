@@ -15,6 +15,7 @@ from typing import Callable, Any
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
+from .. import __version__
 from ..tensor_engine import TensorInferenceEngine
 from .adapter import (
     AdapterSpecError,
@@ -128,12 +129,17 @@ def _parse_entry(
         )
 
     timestamp = value.get("timestamp")
-    if (
-        isinstance(timestamp, bool)
-        or not isinstance(timestamp, (int, float))
-        or not np.isfinite(timestamp)
-        or timestamp < 0
-    ):
+    if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):
+        raise ValueError(
+            f"Sequence manifest line {line_number}: timestamp must be finite and non-negative."
+        )
+    try:
+        timestamp_value = float(timestamp)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Sequence manifest line {line_number}: timestamp must be finite and non-negative."
+        ) from exc
+    if not np.isfinite(timestamp_value) or timestamp_value < 0:
         raise ValueError(
             f"Sequence manifest line {line_number}: timestamp must be finite and non-negative."
         )
@@ -185,7 +191,7 @@ def _parse_entry(
     entry = SequenceEntry(
         line_number=line_number,
         frame_id=frame_id,
-        timestamp=float(timestamp),
+        timestamp=timestamp_value,
         color_path=color_path,
         depth_path=optional_paths["depth"],
         motion_path=optional_paths["motion"],
@@ -454,6 +460,7 @@ def run_sequence(
 
     report: dict[str, object] = {
         "engine": "TrSS",
+        "engine_version": __version__,
         "operation": "offline_frame_sequence_inference",
         "model": str(resolved_model),
         "adapter_spec": str(spec_path.expanduser().resolve()),
