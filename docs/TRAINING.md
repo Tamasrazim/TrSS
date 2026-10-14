@@ -255,7 +255,14 @@ You do not need to install another AAA game. Start with **Euro Truck Simulator 2
 Install the optional video decoder and training runtime:
 
 ~~~powershell
-python -m pip install -e ".[training,video,test]"
+# Install the official Intel GPU-enabled PyTorch build first.
+python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
+
+# Then install TrSS and the optional video/test packages without replacing PyTorch.
+python -m pip install -e ".[video,test]"
+
+# Confirm PyTorch can see the Intel GPU before starting a long run.
+python -c "import torch; print(torch.__version__); print(torch.xpu.is_available())"
 ~~~
 
 Then run the full local import → train → evaluate workflow in one command. Replace the example paths with your actual recordings:
