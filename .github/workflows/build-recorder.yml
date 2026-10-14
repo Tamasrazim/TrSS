@@ -16,6 +16,7 @@ on:
       - "run_recorder.py"
       - ".github/workflows/build-recorder.yml"
       - "docs/RECORDER.md"
+      - "docs/RECORDER-README.md"
       - "docs/RECORDER-RELEASE.md"
     tags:
       - "game-library-v*"
