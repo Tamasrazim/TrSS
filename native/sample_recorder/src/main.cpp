@@ -1,7 +1,5 @@
 // TrSS Sample Recorder: a native Windows GUI that captures visible game-window RGB samples.
 // It does not inject into games, install an overlay, read private renderer buffers, or upload files.
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #define _WIN32_WINNT 0x0A00
 #include <windows.h>
 #include <commctrl.h>
@@ -343,7 +341,7 @@ bool is_file(const fs::path& path) {
 
 bool is_directory_path(const fs::path& path) {
     std::error_code error;
-    return fs::is_directory_path(path, error);
+    return fs::is_directory(path, error);
 }
 
 bool game_name_is_blocked(const std::wstring& name) {
@@ -398,7 +396,7 @@ fs::path find_game_executable(const fs::path& root, const std::wstring& gameName
     fs::recursive_directory_iterator it(root,
         fs::directory_options::skip_permission_denied, error), end;
     for (; !error && it != end; it.increment(error)) {
-        if (it.depth() >= 2 && it->is_directory_path(error)) {
+        if (it.depth() >= 2 && it->is_directory(error)) {
             it.disable_recursion_pending();
             continue;
         }
@@ -527,7 +525,7 @@ void scan_common_library_folder(std::vector<GameEntry>& games,
     std::error_code error;
     for (fs::directory_iterator it(libraryRoot, fs::directory_options::skip_permission_denied, error), end;
         !error && it != end; it.increment(error)) {
-        if (!it->is_directory_path(error)) continue;
+        if (!it->is_directory(error)) continue;
         const fs::path root = it->path();
         const std::wstring name = root.filename().wstring();
         if (game_name_is_blocked(name)) continue;
