@@ -123,6 +123,29 @@ def test_profile_with_missing_fields_is_not_marked_exact_even_if_checked() -> No
     assert "display_resolution" in row["settings_coverage"]["missing_settings"]
 
 
+def test_numeric_engine_enum_is_not_mislabelled_as_exact() -> None:
+    values = {field: "Unknown" for field in STANDARD_SETTINGS}
+    values["texture_quality"] = "3"
+    row = build_matrix_row(
+        session_id="enum-session",
+        game_name="Sample Game",
+        platform="Disk",
+        started_utc="2026-10-14T00:00:00Z",
+        elapsed_seconds=1.0,
+        captured_frames=2,
+        performance_rows=[],
+        graphics_profile={
+            "verified_in_game": True,
+            "values": values,
+            "sources": {"texture_quality": "local_game_config"},
+        },
+    )
+
+    assert row["matrix_row_exact"] is False
+    assert row["matrix_row_complete"] is False
+    assert row["settings_coverage"]["settings_needing_value_decoding"] == ["texture_quality"]
+
+
 def test_settings_hash_changes_when_a_setting_changes() -> None:
     values = {field: "Unknown" for field in STANDARD_SETTINGS}
     common = {
