@@ -61,7 +61,7 @@ The recorder captures screenshots and available Windows counters such as CPU, me
 After both modes have been recorded, compare the local JSONL matrix:
 
 ~~~powershell
-trss-compare-performance --matrix "$env:LOCALAPPDATA\TrSS\GameLibrary\matrix\game-matrix.jsonl" --output-dir "logs\performance-comparison" --baseline-profile "Baseline" --trss-profile "TrSS" --require-exact
+trss-compare-performance --matrix "$env:LOCALAPPDATA\TrSS\GameLibrary\matrix\game-matrix.jsonl" --output-dir "logs\performance-comparison" --baseline-profile "Baseline" --trss-profile "TrSS - Cinematic" --require-exact
 ~~~
 
 The command writes performance-comparison.csv and performance-comparison.json. It only compares rows that share the same game, experiment group and settings fingerprint; --require-exact additionally requires both profiles to be marked exact and verified in-game. A percentage change is a descriptive observation, not proof that TrSS caused the change. A comparable workload, repeated runs, and real metrics matter.
