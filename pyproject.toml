@@ -24,6 +24,7 @@ trss-split-dataset = "trss.training.split_manifest:main"
 trss-audit-dataset = "trss.training.audit_dataset:main"
 trss-review-dataset = "trss.training.review_dataset:main"
 trss-recorder = "trss.game_hub:main"
+trss-runtime-installer = "trss.runtime_installer:main"
 trss-window-recorder = "trss.recorder:main"
 
 [tool.setuptools.packages.find]
