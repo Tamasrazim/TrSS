@@ -1,4 +1,4 @@
-name: Build TrSS Data Recorder
+name: Build TrSS Game Library
 
 on:
   workflow_dispatch:
@@ -7,14 +7,16 @@ on:
       - main
     paths:
       - "trss/recorder.py"
+      - "trss/game_hub.py"
       - "tests/test_recorder.py"
+      - "tests/test_game_hub.py"
       - "pyproject.toml"
       - "run_recorder.py"
       - ".github/workflows/build-recorder.yml"
       - "docs/RECORDER.md"
       - "docs/RECORDER-RELEASE.md"
     tags:
-      - "recorder-v*"
+      - "game-library-v*"
 
 permissions:
   contents: write
@@ -45,30 +47,30 @@ jobs:
       - name: Build portable recorder
         run: >
           python -m PyInstaller --noconfirm --clean --onefile --windowed
-          --name TrSS-Data-Recorder --collect-all PIL run_recorder.py
+          --name TrSS-Game-Library --collect-all PIL run_recorder.py
 
       - name: Calculate SHA-256
         shell: pwsh
         run: |
-          $file = "dist\TrSS-Data-Recorder.exe"
+          $file = "dist\TrSS-Game-Library.exe"
           $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-          Set-Content -Path "$file.sha256" -Value "$hash  TrSS-Data-Recorder.exe" -Encoding ascii
+          Set-Content -Path "$file.sha256" -Value "$hash  TrSS-Game-Library.exe" -Encoding ascii
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TrSS-Data-Recorder-windows-x64
+          name: TrSS-Game-Library-windows-x64
           path: |
-            dist/TrSS-Data-Recorder.exe
-            dist/TrSS-Data-Recorder.exe.sha256
+            dist/TrSS-Game-Library.exe
+            dist/TrSS-Game-Library.exe.sha256
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish tagged build
-        if: startsWith(github.ref, 'refs/tags/recorder-v')
+        if: startsWith(github.ref, 'refs/tags/game-library-v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release create $tag dist\TrSS-Data-Recorder.exe dist\TrSS-Data-Recorder.exe.sha256 --title "TrSS Data Recorder $tag" --notes-file docs\RECORDER-RELEASE.md
+          gh release create $tag dist\TrSS-Game-Library.exe dist\TrSS-Game-Library.exe.sha256 --title "TrSS Game Library $tag" --notes-file docs\RECORDER-RELEASE.md
