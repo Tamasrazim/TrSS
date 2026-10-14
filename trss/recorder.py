@@ -843,7 +843,7 @@ class TrSSRecorderApp:
                 scene_label=scene_label,
                 fps=fps,
                 duration=duration,
-                keep_unpacked=keep_unpacked,
+                keep_unpacked=self.keep_unpacked_var.get(),
             ),
         )
 
@@ -1047,7 +1047,7 @@ class TrSSRecorderApp:
                 metadata=metadata,
                 system_metadata=system_metadata,
                 sequence_rows=rows,
-                keep_unpacked=self.keep_unpacked_var.get(),
+                keep_unpacked=keep_unpacked,
             )
         except Exception as exc:
             # Keep a visible partial capture folder when packaging fails so the frames can
