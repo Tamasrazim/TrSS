@@ -106,6 +106,9 @@ int g_scrollOffset = 0;
 int g_dragSlider = -1;
 HWND g_gameWindow = nullptr;
 WNDPROC g_previousWndProc = nullptr;
+RECT g_savedCursorClip{};
+bool g_cursorWasVisible = false;
+bool g_cursorSessionActive = false;
 HMODULE g_module = nullptr;
 HMODULE g_realDxgi = nullptr;
 std::wstring g_runtimeDirectory;
@@ -1049,8 +1052,13 @@ LRESULT CALLBACK runtime_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPA
     if (message == WM_KEYDOWN && wParam == VK_PRIOR &&
         (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
         g_menuVisible = !g_menuVisible.load();
+        set_menu_cursor(g_menuVisible.load());
         g_dragSlider = -1;
         return 0;
+    }
+    if (visible && message == WM_SETCURSOR) {
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
     }
     if (visible && message == WM_MOUSEWHEEL) {
         const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
@@ -1085,6 +1093,39 @@ LRESULT CALLBACK runtime_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPA
     }
     return g_previousWndProc ? CallWindowProcW(g_previousWndProc, hwnd, message, wParam, lParam)
                              : DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+bool cursor_is_visible() {
+    CURSORINFO info{};
+    info.cbSize = sizeof(info);
+    return GetCursorInfo(&info) != FALSE && (info.flags & CURSOR_SHOWING) != 0;
+}
+
+void set_menu_cursor(bool visible) {
+    if (visible) {
+        if (g_cursorSessionActive) return;
+        g_cursorWasVisible = cursor_is_visible();
+        GetClipCursor(&g_savedCursorClip);
+        ClipCursor(nullptr);
+        g_cursorSessionActive = true;
+        // ShowCursor maintains a counter. Raise it until the visible state is
+        // observed; the bounded loop prevents a broken cursor driver from hanging.
+        for (int attempt = 0; attempt < 32 && !cursor_is_visible(); ++attempt) {
+            ShowCursor(TRUE);
+        }
+        return;
+    }
+
+    if (!g_cursorSessionActive) return;
+    ClipCursor(&g_savedCursorClip);
+    // Restore the state that existed before opening the settings menu, because
+    // many games hide or clip their mouse cursor during normal play.
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        const bool currentVisible = cursor_is_visible();
+        if (currentVisible == g_cursorWasVisible) break;
+        ShowCursor(g_cursorWasVisible ? TRUE : FALSE);
+    }
+    g_cursorSessionActive = false;
 }
 
 void hook_game_window(HWND window) {
