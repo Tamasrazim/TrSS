@@ -52,7 +52,7 @@ If the game starts but the overlay never appears, return to the installer and re
 The **TrSS Game Library recorder is separate from the live renderer**. It does not have to communicate with, load, or instrument the TrSS runtime. Use the recorder in two controlled passes:
 
 1. **Baseline:** with TrSS runtime not installed for that game, launch the game from the library and record a run. In the post-capture review, set the profile label to Baseline.
-2. **TrSS:** install the runtime, launch the same game and repeat the same scene and workload with TrSS active. In the review, set the profile label to TrSS.
+2. **TrSS:** install the runtime, launch the same game and repeat the same scene and workload with TrSS active. In the review, use a specific profile label such as TrSS - Cinematic (rather than the generic TrSS label) when comparing a named preset.
 3. Use the **same experiment group**, and verify the same game's graphics settings in both review dialogs. Use identical game build, resolution, scene, camera position, game settings, API and driver whenever possible. Each exact row is fingerprinted; comparison refuses to pair rows whose standard settings hashes differ.
 4. Repeat both modes several times and alternate order when practical to reduce temperature, cache and run-order bias.
 
