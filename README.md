@@ -29,6 +29,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Scene-grouped training/validation manifest splitter | Implemented; deterministic and path-validated |
 | Paired-render dataset audit | Checks image/tensor contracts, scene leakage, exact/perceptual duplicates, paired-image consistency metrics, motion clipping, and provenance metadata |
 | Controlled 3D dataset generator | CPU software scene renderer creates matched 1×/2× frames, geometry-derived depth/motion, and visibility-checked reprojected history; synthetic pilot only |
+| One-command pilot workflow | Runs generation, scene-disjoint split, structural audit, and offline pair gallery into one protected output folder |
 | Offline visual pair-review gallery | Scene-balanced thumbnails, searchable local HTML, source paths, and decode-error report |
 | Offline checkpoint timing breakdown | Separates setup, model, composition, and output writing; not live FPS |
 | Direct3D 9 legacy render-target probe | Experimental; device/clear/readback test only |
@@ -58,6 +59,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **Offline paired-frame review gallery:** `trss.training.review_dataset` and `trss-review-dataset` create a responsive, searchable HTML page with local thumbnails for a deterministic sample balanced across scene IDs. The tool exposes source paths, dimensions, history-reset state, and image decoding errors for manual review without altering the source dataset.
 - **Controlled-scene dataset generator:** `trss.training.generate_scene_dataset` and `trss-generate-scene-dataset` render reproducible box-scene sequences at low and 2× reference resolution, derive linear view-depth and current-minus-previous motion from known geometry, and reproject previous target frames with object-ID/depth visibility checks. The output is explicitly labelled synthetic; it is a pipeline bring-up dataset, not a game capture hook or photorealism claim.
+- **One-command pilot preparation:** `trss.training.prepare_pilot` and `trss-prepare-pilot` orchestrate scene generation, whole-scene train/validation splitting, paired-render audit, and local review gallery in a transactionally staged directory. The pipeline protects existing output unless `--force` is supplied and repairs absolute report links when the staging directory is promoted.
 - **Paired-render dataset audit:** `trss.training.audit_dataset` and `trss-audit-dataset` validate the actual frame files, 2× image-size contract, depth/motion/history shapes and ranges, scene disjointness, exact decoded-pixel duplicates across the two splits, and optional provenance JSON. A banded 64-bit difference-hash search reports likely near-duplicates across splits as warnings. The audit also compares each low-resolution input against its high-resolution target reduced with the BOX filter, reporting per-frame MAE/RMSE/PSNR and split summaries. This is only a pairing sanity-check proxy—not proof of alignment or render quality.
 - **Scene-separated dataset split tool:** `trss.training.split_manifest` and `trss-split-dataset` build deterministic training/validation manifests by complete `scene_id` groups, validate referenced files, reject exact cross-scene reuse of input/target frames, preserve provenance fields, and rebase output paths. It organizes supplied data; it does not create training frames.
 - **First-party TrSS training model:** a trainable 10-channel, 2x temporal reconstruction baseline with paired-frame validation, motion-aware flip augmentation, full-frame tiled validation, resumable AdamW/RNG checkpoints, and MAE/PSNR comparison against bicubic interpolation. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
@@ -145,17 +147,15 @@ trss hnet-frame --model "models\your-hnet-model.onnx" --color "frames\input.png"
 
 The command refuses incompatible input/output shapes rather than pretending any rank-four network is the expected graph. A supplied model must also have matching weights, input preprocessing, head output semantics, and legal terms. The report's timing separates model inference from the whole offline frame path; neither is in-game FPS. Previous history is optional for the first frame and, when provided, must be an RGB HWC `.npy` array in the 0..1 range.
 
-### Generate a controlled synthetic dataset for pipeline bring-up
+### Prepare a controlled synthetic pilot dataset with one command
 
-The built-in CPU scene generator creates deterministic, first-party 3D box scenes without external assets or a game capture hook. It outputs matched input/reference frames, normalized linear view-space depth, geometry-derived motion vectors, visibility-checked warped reference history, explicit reset rows, and provenance metadata. This proves that the manifest/audit/review pipeline can be exercised end to end; the flat-shaded synthetic scenes are not a substitute for captures from a real game.
+For a quick end-to-end pipeline test, the one-command wrapper generates scenes, assigns whole scenes to train/validation manifests, audits the split, and creates an offline gallery. It writes all files into one protected output folder.
 
 ```powershell
-python -m trss.training.generate_scene_dataset --output-dir data/trss-pilot --scenes 4 --frames-per-scene 6 --width 160 --height 90 --seed 20261014
-python -m trss.training.split_manifest --input-manifest data/trss-pilot/all-frames.jsonl --train-output data/trss-pilot/train.jsonl --validation-output data/trss-pilot/validation.jsonl --scene-field scene_id --validation-fraction 0.25 --seed 20261014
-python -m trss.training.audit_dataset --train-manifest data/trss-pilot/train.jsonl --validation-manifest data/trss-pilot/validation.jsonl --provenance-json data/trss-pilot/provenance.json --report logs/trss-pilot-audit.json --motion-scale-px 64
+python -m trss.training.prepare_pilot --output-dir data/trss-pilot --scenes 6 --frames-per-scene 6 --width 160 --height 90 --seed 20261014
 ```
 
-For the first command, use a fresh output folder; existing folders are protected unless `--force` is supplied. Before training, use the scene-split command below to create disjoint train and validation manifests, then audit those two manifests separately. This generator is intentionally a local CPU proof of pipeline behavior, not a real-game or Arc GPU capture path.
+Open `data/trss-pilot/review-gallery/index.html` to inspect paired images and `data/trss-pilot/pipeline-report.json` for the summary. The individual artifacts include `train.jsonl`, `validation.jsonl`, `dataset-audit.json`, and `generation-report.json`. Existing output folders are preserved unless `--force` is explicitly provided. This uses controlled, flat-shaded CPU-rendered scenes and is not a game capture or performance test.
 
 ### Train the original TrSS reconstruction model
 

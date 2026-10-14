@@ -47,18 +47,17 @@ For a non-reset frame, \`history\` must be an RGB image aligned to the high-reso
 
 Create separate training and validation manifests. Split by scene or capture sequence rather than randomly splitting neighboring frames, otherwise almost identical frames can leak across the two sets. Before training, TrSS also rejects any exact low-resolution input frame or target frame reused across the two manifests. This catches direct file reuse, but it cannot detect near-duplicate frames saved under different paths; scene-level separation remains necessary. Use original renders and asset packs whose licences permit dataset creation and model training; keep their sources and licences in an accompanying provenance file.
 
-### Generate a controlled synthetic pilot dataset
+### Generate and inspect a controlled synthetic pilot dataset
 
-For a local end-to-end test before connecting a real renderer, TrSS includes a tiny CPU software rasterizer. It makes repeatable 3D box scenes using first-party geometry, renders matching input/reference pairs at 1× and 2× resolution, computes normalized linear view-space depth and current-minus-previous motion from known transforms, and reprojects the previous reference frame using object IDs and previous-frame depth visibility checks. This data is deliberately labelled synthetic: it is not captured from a game and does not validate Arc GPU performance or photorealistic quality.
+Run the one-command pipeline to generate the controlled 3D scenes, split complete scenes between training and validation, run the structural audit, and write an offline gallery:
 
 ```powershell
-python -m trss.training.generate_scene_dataset --output-dir data/trss-pilot --scenes 4 --frames-per-scene 6 --width 160 --height 90 --seed 20261014
-python -m trss.training.review_dataset --manifest data/trss-pilot/all-frames.jsonl --output-dir logs/trss-pilot-review --max-frames 24 --scene-field scene_id --seed 20261014
+python -m trss.training.prepare_pilot --output-dir data/trss-pilot --scenes 6 --frames-per-scene 6 --width 160 --height 90 --seed 20261014
 ```
 
-The generator writes `all-frames.jsonl`, `provenance.json`, and `generation-report.json`, plus RGB frames, float32 depth/motion arrays, warped-history images, and validity masks. The first frame in each scene has explicit null history; subsequent frames use a reprojection attempt with previous object-ID and depth checks. Motion convention is current pixel center minus the same surface point projected into the previous frame, with x right-positive and y down-positive. Depth is view-space distance linearly normalized from near=0.1 to far=30; this is not a vendor GPU depth-buffer encoding.
+Open `data/trss-pilot/review-gallery/index.html` and inspect the pairs manually before treating this as training data. The pipeline writes `train.jsonl`, `validation.jsonl`, `dataset-audit.json`, `generation-report.json`, and `pipeline-report.json`. Use a fresh folder unless you explicitly pass `--force`; the command stages the result and promotes it after generation, splitting, auditing, and gallery creation.
 
-Use a fresh output folder; an existing path is protected unless `--force` is supplied. Treat this as pipeline smoke-test data. It is not enough to claim real-game training quality and should not replace a dataset captured from a renderer that exposes real production buffers.
+The CPU software rasterizer uses first-party box geometry and is explicitly synthetic. It renders the same camera/scene state at 1× and 2× resolution, computes normalized linear view-space depth and current-minus-previous motion from known geometry, and estimates previous-frame history using object-ID/depth visibility checks. It is **not** a live-game capture hook, production GPU buffer reader, photorealistic renderer, or Arc performance test. Passing the structural audit cannot prove semantic alignment or model quality.
 
 ### Build scene-separated train and validation manifests
 
