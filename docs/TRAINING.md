@@ -113,11 +113,15 @@ Training writes \`checkpoint-last.pt\`, \`checkpoint-best.pt\`, and \`training-r
 
 ## Run a trained checkpoint on an offline frame
 
-\`\`\`powershell
-python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/trss-output.png --device xpu --warmup 2 --iterations 5 --report logs/inference.json
-\`\`\`
+```powershell
+python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.pt --color frames/low.png --depth frames/depth.npy --motion frames/motion.npy --output work/trss-output.png --device xpu --warmup 2 --iterations 20 --report logs/inference.json --telemetry-jsonl logs/trss-performance.jsonl
+```
 
-For a non-reset frame, also pass \`--history\` and \`--history-valid\`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case. The report separates input setup, isolated model inference, model-plus-composition timing, output encoding/writing, and total benchmark-call elapsed time. The FPS-equivalent estimate uses repeated model-plus-composition timing only; it excludes live capture, file decoding, input setup, device transfer, and output encoding. It is not a full-pipeline or in-game FPS measurement.
+For a non-reset frame, also pass `--history` and `--history-valid`. The history image must already be reprojected to the current view and exactly 2x the color frame dimensions; the mask must have the same output dimensions. Omitting both history arguments is an explicit first-frame/reset case.
+
+TrSS records its **own model performance** in the report: synchronized per-iteration inference and compositor latency, mean/median/p95/p99 timing summaries, an FPS-equivalent compute-capacity estimate, the 60 FPS time budget, checkpoint hash/epoch and architecture, input/output dimensions, PyTorch/device/runtime identity, and PyTorch allocator memory where the selected backend exposes it. `--telemetry-jsonl` appends one complete run with every measured iteration to a JSONL log so repeated builds, resolutions and checkpoints can be compared over time. Unsupported allocator values remain null.
+
+This is an offline single-frame microbenchmark repeated over the same input; it excludes live capture, reading game buffers, initial device transfer, and output encoding from the model-path FPS-equivalent. It does not measure a game or a live TrSS renderer integrated into a game. The first-party model also requires real depth, motion vectors and (for non-reset frames) reprojected history; TrSS must not invent those inputs to produce a convenient benchmark. A trained checkpoint must exist locally—the repository does not bundle trained model weights.
 
 ## What this does not do yet
 
