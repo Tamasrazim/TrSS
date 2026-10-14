@@ -1,28 +1,24 @@
-"""TrSS Game Library: discover games, launch them, and collect opt-in game telemetry.
+"""TrSS Game Library: discover and launch games with first-party performance monitoring.
 
-FPS and frametime come from the bundled per-present ETW collector when Windows allows
-access. Missing measurements remain unknown instead of being inferred from monitor rate.
+Game FPS and frametime collection will be implemented in native TrSS code. Missing
+measurements remain unknown instead of being guessed from monitor refresh or screenshot rate.
 """
 
 from __future__ import annotations
 
-import csv
 import ctypes
-from collections import Counter, deque
+from collections import Counter
 from ctypes import wintypes
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import queue
 import re
 import shutil
-import statistics
 import subprocess
-import sys
 import threading
 import time
 import tkinter as tk
@@ -114,8 +110,6 @@ LOCAL_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Loca
 APP_DATA = LOCAL_ROOT / "TrSS" / "GameLibrary"
 ICON_CACHE = APP_DATA / "icons"
 LIBRARY_FILE = APP_DATA / "library.json"
-PRESENTMON_VERSION = "2.6.0"
-PRESENTMON_FILENAME = f"PresentMon-{PRESENTMON_VERSION}-x64.exe"
 
 
 @dataclass
@@ -1006,15 +1000,12 @@ class _MEMORYSTATUSEX(ctypes.Structure):
 
 
 class PerformanceReader:
-    """Read CPU, memory, GPU and true frame-presentation telemetry."""
+    """Read system/process telemetry without pretending it is an FPS measurement."""
 
     def __init__(self) -> None:
         self.prev_system: tuple[int, int, int] | None = None
         self.prev_process: dict[int, tuple[int, int, float]] = {}
         self.pdh = PDHReader()
-        self.presentmon = PresentMonReader()
-        self.last_game_key: str | None = None
-        self.last_game_pid = 0
 
     @staticmethod
     def _filetime_value(value: wintypes.FILETIME) -> int:
@@ -1150,49 +1141,27 @@ class PerformanceReader:
             kernel32.CloseHandle(handle)
 
     def sample(self, game: GameEntry | None) -> dict[str, Any]:
-        """Sample system sensors and real per-frame timings from the selected game."""
+        """Read available system/process counters; native TrSS frame timing is in development."""
         pid = 0
         hwnd = 0
         if game:
             found = _find_game_window(game)
             if found:
                 hwnd, pid = found
-                self.last_game_key = game.key
-                self.last_game_pid = pid
-            elif (
-                game.key == self.last_game_key
-                and self.last_game_pid
-                and self.presentmon.is_tracking(self.last_game_pid)
-            ):
-                # Keep process-level telemetry alive when the same game is minimized.
-                pid = self.last_game_pid
-            else:
-                self.last_game_key = game.key
-                self.last_game_pid = 0
-                self.presentmon.stop()
-        else:
-            self.last_game_key = None
-            self.last_game_pid = 0
-            self.presentmon.stop()
-
         memory = self._memory()
         process = self._process_stats(pid)
         gpu, vram = self.pdh.sample(pid) if pid else (None, None)
-        frame = self.presentmon.sample(pid) if pid else {
-            **summarize_presentmon_samples([], last_sample_age_seconds=None),
-            "fps_source": "Waiting for the selected game's process window",
-        }
         return {
             "timestamp_utc": utc_now_text(),
             "game": game.name if game else None,
             "game_window_found": bool(hwnd),
-            "fps": frame["fps"],
-            "application_fps": frame["application_fps"],
-            "frametime_ms": frame["frametime_ms"],
-            "application_frametime_ms": frame["application_frametime_ms"],
-            "fps_1_percent_low": frame["fps_1_percent_low"],
-            "fps_samples": frame["fps_samples"],
-            "fps_source": frame["fps_source"],
+            "fps": None,
+            "application_fps": None,
+            "frametime_ms": None,
+            "application_frametime_ms": None,
+            "fps_1_percent_low": None,
+            "fps_samples": 0,
+            "fps_source": "Native TrSS per-present telemetry is in development",
             "system_cpu_percent": self._system_cpu(),
             "game_cpu_percent": process["game_cpu_percent"],
             "game_ram_bytes": process["game_ram_bytes"],
@@ -1204,9 +1173,7 @@ class PerformanceReader:
         }
 
     def close(self) -> None:
-        self.presentmon.close()
         self.pdh.close()
-
 
 @dataclass
 class CaptureSession:
@@ -2035,7 +2002,7 @@ class GameHubApp:
                         "game": game.name if game else None,
                         "game_window_found": False,
                         "fps": None,
-                        "fps_source": "Bundled PresentMon has not produced a frame event yet",
+                        "fps_source": "Native TrSS per-present telemetry is in development",
                         "monitor_error": type(exc).__name__,
                     }
                 self.events.put(("metrics", metrics))
@@ -2242,7 +2209,7 @@ class GameHubApp:
                 "automatic_upload": False,
                 "depth_buffer_collected": False,
                 "motion_vectors_collected": False,
-                "fps_note": "FPS and frametime are read from the bundled PresentMon ETW collector when available. Unavailable values remain null; Windows Performance Log permissions may be required.",
+                "fps_note": "Native TrSS per-present FPS and frametime telemetry is still in development. Values remain null rather than being estimated from refresh rate, screenshots, or GPU load.",
             },
             "consent": {
                 "policy_version": "2026-10-14",
