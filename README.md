@@ -49,6 +49,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Graphics-frame contract:** `FramePacket` carries source color plus only those depth, motion-vector, noise, and conditioning buffers actually supplied by the source, along with color/depth/motion conventions.
 - **Spec-driven frame adapter:** an explicit JSON file maps model port names to frame sources, tensor layouts, resampling rules, channel order, and numeric ranges. Static model sizes are honored; missing depth/motion/history is an error, not fabricated input.
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
+- **Offline temporal sequence runner:** `render-sequence` reads an explicit JSONL manifest, processes recorded frames in order, carries normalized RGB history only across continuous frames, and resets history after camera cuts, scene/resolution changes, gaps, or stale timestamps. Required depth/motion inputs must be real files; after a history reset, a model that needs history requires an explicit `initial_history` seed.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
@@ -106,6 +107,16 @@ trss render-frame --model "models\render-model.onnx" --spec "models\render-adapt
 ```
 
 Only provide buffers that actually exist and that the adapter spec requires. Preview and history output require an explicit direct-RGB output declaration in the spec; feature planes and packed neural heads need a model-specific composition routine. History output is HWC float32 in the [0, 1] range. Depth and motion encoding, color space, model-specific noise, tensor normalization, temporal reprojection, and output-head composition must match the chosen model's documentation. See [MODEL-ADAPTERS.md](docs/MODEL-ADAPTERS.md). This command processes offline frame files; it does not capture a live game or claim real-time performance.
+
+### Process an offline frame sequence with temporal history
+
+Use [the JSONL manifest example](docs/examples/sequence-manifest.jsonl) as a template. Each non-empty line describes one frame. Paths are relative to the manifest unless absolute. The `color` image is required; `depth`, `motion`, `noise`, and `conditioning` are optional only when the selected model does not require them. A history-consuming model also needs a real `initial_history` RGB HWC `.npy` array in float32-compatible values from 0 to 1 on the first frame and after any reset where no continuous history remains.
+
+```powershell
+trss render-sequence --model "models\render-model.onnx" --spec "models\render-adapter.json" --manifest "frames\sequence.jsonl" --output-dir "work\sequence-render" --device ARC --report "logs\sequence-report.json"
+```
+
+Each output is written as an ordered PNG in the output directory. The report includes per-frame preprocessing, compile, inference and wall timings, adapter/device details, available inputs, and whether history was reused or seeded. This path is sequential offline processing—not real-time capture or game FPS—and it never creates fake depth or motion data.
 
 ### Execute a model with multiple named tensors
 
