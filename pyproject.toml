@@ -34,6 +34,7 @@ trss-pilot-experiment = "trss.training.pilot_experiment:main"
 trss-import-game-video = "trss.training.import_game_video:main"
 trss-train-spatial = "trss.training.train_spatial:main"
 trss-evaluate-spatial = "trss.training.evaluate_spatial:main"
+trss-gameplay-experiment = "trss.training.gameplay_experiment:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]
