@@ -2132,6 +2132,9 @@ class GameHubApp:
 
     def _review_graphics_settings(self, session: CaptureSession) -> None:
         """Ask for the exact settings used in this run before its dataset is packaged."""
+        # The library was iconified when the game launched; restore it so the review
+        # cannot become a hidden modal dialog behind the game or the desktop.
+        self.show_library()
         detected = session.detected_settings or {}
         initial_values = dict(detected.get("values") or {})
         baseline_values = dict(initial_values)
@@ -2201,6 +2204,14 @@ class GameHubApp:
 
         body.bind("<Configure>", update_scroll_region)
         canvas.bind("<Configure>", resize_body)
+
+        def scroll_review(event: tk.Event) -> str:
+            canvas.yview_scroll(-int(event.delta / 120), "units")
+            return "break"
+
+        # The main library already has a wheel binding; temporarily route wheel
+        # input to this modal review so all settings remain reachable.
+        dialog.bind_all("<MouseWheel>", scroll_review)
 
         field_vars: dict[str, tk.StringVar] = {}
         source_labels: dict[str, tk.Label] = {}
@@ -2382,6 +2393,10 @@ class GameHubApp:
         )
         dialog.protocol("WM_DELETE_WINDOW", save_profile)
         dialog.wait_window()
+        try:
+            dialog.unbind_all("<MouseWheel>")
+        except tk.TclError:
+            pass
 
         # If window destruction occurs unusually, do not strand the capture worker.
         if not session.review_event.is_set():
@@ -2592,6 +2607,8 @@ class GameHubApp:
                 "total_standard_settings": matrix_row["settings_coverage"]["total_standard_settings"],
                 "coverage_percent": matrix_row["settings_coverage"]["coverage_percent"],
                 "missing_settings": matrix_row["settings_coverage"]["missing_settings"],
+                "settings_not_confirmed": matrix_row["settings_coverage"]["settings_not_confirmed"],
+                "settings_needing_value_decoding": matrix_row["settings_coverage"]["settings_needing_value_decoding"],
                 "note": "One matrix row represents this recording and its reviewed graphics profile. Repeat capture after changing the game settings to build a multi-profile matrix.",
             },
             "consent": {
@@ -2646,7 +2663,13 @@ class GameHubApp:
                 "profile_name": matrix_row["profile_name"],
                 "matrix_row_complete": matrix_row["matrix_row_complete"],
                 "matrix_row_exact": matrix_row["matrix_row_exact"],
+                "profile_verified_in_game": matrix_row["profile_verified_in_game"],
                 "settings_coverage": matrix_row["settings_coverage"]["coverage_percent"],
+                "unresolved_settings": (
+                    len(matrix_row["settings_coverage"]["missing_settings"])
+                    + len(matrix_row["settings_coverage"]["settings_not_confirmed"])
+                    + len(matrix_row["settings_coverage"]["settings_needing_value_decoding"])
+                ),
                 "matrix_csv_path": session.matrix_csv_path,
                 "matrix_index_error": session.matrix_index_error,
             },
@@ -2767,11 +2790,19 @@ class GameHubApp:
                         payload.review_event.set()
                 elif kind == "capture_complete":
                     self.overlay.update_metrics(self.last_metrics, self.selected_game, False)
-                    completeness = (
-                        "EXACT VERIFIED MATRIX ROW" if payload["matrix_row_exact"]
-                        else f"matrix {payload['settings_coverage']:.1f}% · "
-                             f"{'profile fields filled' if payload['matrix_row_complete'] else 'missing setting fields'}"
-                    )
+                    if payload["matrix_row_exact"]:
+                        completeness = "EXACT VERIFIED MATRIX ROW"
+                    elif not payload["matrix_row_complete"]:
+                        completeness = (
+                            f"matrix {payload['settings_coverage']:.1f}% · "
+                            f"{payload['unresolved_settings']} setting value(s) unresolved"
+                        )
+                    elif not payload["profile_verified_in_game"]:
+                        completeness = (
+                            f"matrix {payload['settings_coverage']:.1f}% · profile filled but not verified in-game"
+                        )
+                    else:
+                        completeness = f"matrix {payload['settings_coverage']:.1f}% · profile incomplete"
                     self.set_status(
                         f"Bundle verified · {payload['frames']:,} frames · "
                         f"{payload['performance_samples']} performance samples · {completeness} · "
