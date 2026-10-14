@@ -32,7 +32,7 @@ The sampler saves the most recently acquired desktop pixels at the requested tim
 Outputs:
 
 - frames/frame_000000.png and one numbered PNG per saved sample.
-- capture-manifest.jsonl with relative frame paths and monotonic seconds as timestamps. Its rows can be read by trss render-sequence for compatible color-only models.
+- capture-manifest.jsonl with relative frame paths, monotonic timestamps, and an exact duplicate comparison against the previous saved image (null for the first frame). Its rows can be read by trss render-sequence for compatible color-only models.
 - session.json with adapter/monitor, dimensions, timing, output rate, and explicit limitations.
 - .trss-desktop-capture-session, a safety marker required for --force replacement.
 
@@ -58,7 +58,7 @@ Start with Euro Truck Simulator 2 and record two separate sessions from differen
 .\build\directx12\Release\trss_desktop_capture.exe --adapter 0 --monitor 0 --seconds 600 --fps 2 --max-frames 1200 --game "Euro Truck Simulator 2" --output-dir captures\ets2-road-b
 ~~~
 
-Choose adapter/monitor indexes reported by --list-devices; they may vary on the PC. The game label is manual, not process-detected. The desktop sampler logs captured frame timestamps and capture statistics; it does not measure the game's actual FPS, frame time, GPU utilization, or render latency.
+Choose adapter/monitor indexes reported by --list-devices; they may vary on the PC. The game label is manual, not process-detected. The desktop sampler logs captured frame timestamps, capture statistics, and counts of identical versus changed adjacent samples; this helps spot a frozen menu/desktop capture. It does not measure the game's actual FPS, frame time, GPU utilization, or render latency.
 
 Install Intel's PyTorch XPU build and then install TrSS:
 

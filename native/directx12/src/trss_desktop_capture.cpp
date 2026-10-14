@@ -394,7 +394,8 @@ static void readback_staging(ID3D11DeviceContext* context, ID3D11Texture2D* stag
 
 static void write_report(const fs::path& root, const OutputChoice& choice, const Options& o,
     const std::string& start_utc, const std::string& end_utc, UINT w, UINT h,
-    int frames, int skipped, double elapsed) {
+    int frames, int skipped, int sample_comparisons, int identical_samples,
+    int changed_samples, double elapsed) {
     std::ofstream report(root/L"session.json",std::ios::binary|std::ios::out);
     if (!report) throw std::runtime_error("Could not create session.json.");
     report << "{\n"
@@ -414,6 +415,9 @@ static void write_report(const fs::path& root, const OutputChoice& choice, const
       << "  \"width\":" << w << ",\n  \"height\":" << h << ",\n"
       << "  \"requested_fps\":" << o.fps << ",\n  \"frames_saved\":" << frames << ",\n"
       << "  \"sample_slots_skipped\":" << skipped << ",\n"
+      << "  \"adjacent_sample_comparisons\":" << sample_comparisons << ",\n"
+      << "  \"samples_identical_to_previous\":" << identical_samples << ",\n"
+      << "  \"samples_changed_from_previous\":" << changed_samples << ",\n"
       << "  \"elapsed_seconds\":" << std::fixed << std::setprecision(6) << elapsed << ",\n"
       << "  \"measured_output_fps\":" << (elapsed>0.0 ? frames/elapsed : 0.0) << ",\n"
       << "  \"manifest\":\"capture-manifest.jsonl\",\n"
@@ -422,6 +426,7 @@ static void write_report(const fs::path& root, const OutputChoice& choice, const
       << "  \"limits\":[\"Color only; this does not read a game's private render targets.\","
       << "\"No depth, motion, disocclusion mask, or paired reference is captured.\","
       << "\"CPU readback sampling is not a real-time hook or game-FPS benchmark.\","
+      << "\"Exact duplicate checks compare adjacent saved pixel buffers; they are not game telemetry.\","
       << "\"Only use this sequence with model adapters that do not need missing auxiliary inputs.\"]\n}\n";
     report.flush();
     if (!report) throw std::runtime_error("Could not finish session.json.");
@@ -456,6 +461,7 @@ static void capture(const Options& o) {
     auto wic=wic_factory();
     ComPtr<ID3D11Texture2D> readback;
     std::vector<std::uint8_t> latest;
+    std::vector<std::uint8_t> previous_sample;
     const auto start=Clock::now();
     const auto deadline=start+std::chrono::duration<double>(o.seconds);
     const auto interval=std::chrono::duration_cast<Clock::duration>(
@@ -463,6 +469,7 @@ static void capture(const Options& o) {
     auto next_sample=start;
     const std::string start_utc=utc_now();
     int frames=0,skipped=0;
+    int sample_comparisons=0,identical_samples=0,changed_samples=0;
     bool have_pixels=false;
     std::wcout << L"Sampling " << w << L"x" << h << L" from "
       << choice.adapter_desc.Description << L" / " << choice.output_desc.DeviceName
@@ -479,14 +486,27 @@ static void capture(const Options& o) {
             name << L"frame_" << std::setw(6) << std::setfill(L'0') << frames << L".png";
             write_png(wic.Get(),root/L"frames"/name.str(),w,h,latest);
             const std::string relative="frames/"+utf8(name.str());
+            const bool have_previous_sample=!previous_sample.empty();
+            const bool identical_to_previous=have_previous_sample &&
+                latest.size()==previous_sample.size() &&
+                std::memcmp(latest.data(),previous_sample.data(),latest.size())==0;
+            if (have_previous_sample) {
+                ++sample_comparisons;
+                if (identical_to_previous) ++identical_samples;
+                else ++changed_samples;
+            }
             manifest << "{\"frame_id\":" << frames << ",\"timestamp\":"
               << std::fixed << std::setprecision(6) << timestamp
               << ",\"color\":\"" << escaped(relative)
               << "\",\"scene_id\":\"desktop-capture-session\",\"camera_cut\":"
               << (frames==0 ? "true" : "false")
-              << ",\"color_space\":\"unknown\",\"depth_encoding\":\"unknown\","
+              << ",\"identical_to_previous_sample\":";
+            if (!have_previous_sample) manifest << "null";
+            else manifest << (identical_to_previous ? "true" : "false");
+            manifest << ",\"color_space\":\"unknown\",\"depth_encoding\":\"unknown\","
               << "\"motion_units\":\"unknown\"}\n";
             if (!manifest) throw std::runtime_error("Could not write a manifest row.");
+            previous_sample=latest;
             ++frames;
             next_sample+=interval;
             const auto after=Clock::now();
@@ -513,7 +533,8 @@ static void capture(const Options& o) {
         marker << "Created by TrSS Desktop Capture. Safe for --force replacement.\n";
         if (!marker) throw std::runtime_error("Could not write capture safety marker.");
     }
-    write_report(root,choice,o,start_utc,utc_now(),w,h,frames,skipped,elapsed);
+    write_report(root,choice,o,start_utc,utc_now(),w,h,frames,skipped,
+        sample_comparisons,identical_samples,changed_samples,elapsed);
     transaction.commit(o.force);
     std::wcout << L"Saved " << frames << L" color frames to "
       << fs::absolute(o.out).lexically_normal().wstring() << L"\n"
