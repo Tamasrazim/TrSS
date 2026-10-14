@@ -17,7 +17,6 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
-*Animated isometric progress graphic · 40% estimated roadmap completion*
 
 This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment reflects stronger dataset-split checks, safer training resumption, and clearer offline timing reports. Actual training epochs, live capture, and physical Arc B580 validation remain incomplete; the light sweep is decorative animation.
 
