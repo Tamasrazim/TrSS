@@ -1,4 +1,4 @@
-"""Portable tests for TrSS Game Library discovery and performance summaries."""
+"""Portable tests for TrSS Game Library discovery helpers."""
 
 import json
 from pathlib import Path
@@ -14,7 +14,6 @@ from trss.game_hub import (
     choose_game_executable,
     parse_steam_manifest,
     parse_steam_libraries,
-    summarize_presentmon_samples,
 )
 
 
@@ -100,27 +99,3 @@ def test_metric_display_never_fabricates_missing_values() -> None:
     assert _friendly_metric(52.25, "%") == "52.2%"
     assert _name_key("Red Dead Redemption 2") == "reddeadredemption2"
 
-
-def test_presentmon_summarizer_calculates_fps_and_frametime_from_real_samples() -> None:
-    summary = summarize_presentmon_samples(
-        [(8.0, 10.0), (9.0, 10.0), (7.5, 10.0), (10.0, 10.0), (8.5, 10.0)],
-        last_sample_age_seconds=0.05,
-    )
-
-    assert summary["fps"] == 100.0
-    assert summary["application_fps"] == 116.3
-    assert summary["frametime_ms"] == 10.0
-    assert summary["application_frametime_ms"] == 8.6
-    assert summary["fps_samples"] == 5
-
-
-def test_presentmon_summarizer_drops_stale_or_missing_samples() -> None:
-    missing = summarize_presentmon_samples([], last_sample_age_seconds=None)
-    stale = summarize_presentmon_samples(
-        [(8.0, 8.0), (9.0, 9.0), (10.0, 10.0)],
-        last_sample_age_seconds=3.0,
-    )
-
-    assert missing["fps"] is None
-    assert stale["fps"] is None
-    assert stale["fps_samples"] == 0
