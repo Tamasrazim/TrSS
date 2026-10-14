@@ -425,16 +425,22 @@ def create_bundle(
     _write_checksums(session_dir)
 
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as bundle:
-        for path in sorted(item for item in session_dir.rglob("*") if item.is_file()):
-            archive_name = f"{session_dir.name}/{path.relative_to(session_dir).as_posix()}"
-            bundle.write(path, archive_name)
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as bundle:
+            for path in sorted(item for item in session_dir.rglob("*") if item.is_file()):
+                archive_name = f"{session_dir.name}/{path.relative_to(session_dir).as_posix()}"
+                bundle.write(path, archive_name)
 
-    with zipfile.ZipFile(zip_path, "r") as bundle:
-        damaged = bundle.testzip()
-        if damaged is not None:
-            zip_path.unlink(missing_ok=True)
-            raise CaptureError(f"The finished ZIP failed its integrity check at {damaged}.")
+        with zipfile.ZipFile(zip_path, "r") as bundle:
+            damaged = bundle.testzip()
+            if damaged is not None:
+                raise CaptureError(
+                    f"The finished ZIP failed its integrity check at {damaged}."
+                )
+    except Exception:
+        # Never leave a partial ZIP beside a recoverable source folder.
+        zip_path.unlink(missing_ok=True)
+        raise
 
     if not keep_unpacked:
         shutil.rmtree(session_dir)
@@ -757,6 +763,7 @@ class TrSSRecorderApp:
         self.root.after(500, lambda: self._finish_preview(choice))
 
     def _finish_preview(self, choice: WindowChoice) -> None:
+        error_message: str | None = None
         try:
             frame = grab_window(choice.hwnd, require_foreground=True)
             frame.thumbnail((760, 340), Image.Resampling.LANCZOS)
@@ -768,11 +775,14 @@ class TrSSRecorderApp:
             )
         except CaptureError as exc:
             self.status_var.set("Preview was not captured.")
-            messagebox.showerror(APP_NAME, str(exc))
+            error_message = str(exc)
         finally:
             self.root.deiconify()
             self.root.state("normal")
             self.root.lift()
+
+        if error_message:
+            messagebox.showerror(APP_NAME, error_message)
 
     def choose_output(self) -> None:
         folder = filedialog.askdirectory(
