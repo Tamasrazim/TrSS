@@ -1,0 +1,76 @@
+name: Build first-party TrSS live runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/runtime/**"
+      - "trss/runtime_installer.py"
+      - "tests/test_runtime_installer.py"
+      - "pyproject.toml"
+      - ".github/workflows/build-trss-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-runtime:
+    name: Compile DXGI/D3D11 runtime and package installer
+    runs-on: windows-latest
+    steps:
+      - name: Check out TrSS
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project test and packaging tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+          python -m pip install pyinstaller
+
+      - name: Configure first-party runtime
+        run: cmake -S native/runtime -B build/runtime -A x64
+
+      - name: Compile DXGI proxy and D3D11 post-processing runtime
+        run: cmake --build build/runtime --config Release --parallel
+
+      - name: Check installer syntax
+        run: python -m compileall -q trss/runtime_installer.py tests/test_runtime_installer.py
+
+      - name: Test safe install and uninstall behavior
+        run: python -m pytest -q tests/test_runtime_installer.py
+
+      - name: Package one-file Windows installer with the first-party DLL embedded
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name TrSS-Runtime-Installer
+          --add-binary "build/runtime/Release/dxgi.dll;."
+          trss/runtime_installer.py
+
+      - name: Calculate checksums
+        shell: pwsh
+        run: |
+          $installer = "dist\TrSS-Runtime-Installer.exe"
+          $runtime = "build\runtime\Release\dxgi.dll"
+          $installerHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          $runtimeHash = (Get-FileHash $runtime -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "dist\TrSS-Runtime-Installer.exe.sha256" -Value "$installerHash  TrSS-Runtime-Installer.exe" -Encoding ascii
+          Set-Content -Path "dist\dxgi.dll.sha256" -Value "$runtimeHash  dxgi.dll" -Encoding ascii
+
+      - name: Upload Windows installer and native runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrSS-Live-Runtime-windows-x64
+          path: |
+            dist/TrSS-Runtime-Installer.exe
+            dist/TrSS-Runtime-Installer.exe.sha256
+            build/runtime/Release/dxgi.dll
+            dist/dxgi.dll.sha256
+          if-no-files-found: error
+          retention-days: 30
