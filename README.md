@@ -6,7 +6,7 @@ TrSS is an experimental, local-first neural-rendering research engine targeting 
 
 TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, an experimental Vulkan/XMX research backend, and native Windows API probes for legacy Direct3D 9, Direct3D 11, and Direct3D 12.
 
-> **Current status:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. The training pipeline remains in the repository, but no trained weights or dataset are bundled. The native backend still uses a separate fixed research graph, and there is no live-game capture hook or completed physical B580 validation.
+> **Current status:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. No trained weights or dataset are bundled. A first-party DXGI/D3D11 post-processing shim and in-game menu now compile in CI, but the trained PyTorch model is not wired into that runtime, the renderer does not expose real depth/motion/history buffers to the model, and physical B580/game compatibility validation remains outstanding.
 
 TrSS is independent research software and is not affiliated with, endorsed by, or a product of Intel or NVIDIA.
 
@@ -18,7 +18,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment adds a low-resolution/reference consistency proxy: it compares each input against a BOX-downsampled version of its target and summarizes per-frame MAE, RMSE, and PSNR. These values help flag pairs for review but cannot prove alignment, because render pipelines and anti-aliasing differ. Actual training, live capture, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment adds a low-resolution/reference consistency proxy: it compares each input against a BOX-downsampled version of its target and summarizes per-frame MAE, RMSE, and PSNR. These values help flag pairs for review but cannot prove alignment, because render pipelines and anti-aliasing differ. Training the first-party model, feeding live game buffers to PyTorch, and physical Arc B580 validation remain incomplete. A separate D3D11 post-processing runtime is experimental; the light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -36,7 +36,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Native Vulkan/XMX execution path | Experimental; hardware validation remains |
 | First-party per-game live graphics runtime | Experimental D3D11/DXGI prototype; Windows CI build passes, real-game compatibility remains unverified |
 | Verified neural-rendering model and compatible weights | Not yet bundled or validated |
-| Opt-in visible-window frame capture | Implemented in the Windows recorder; in-game render hooks and auxiliary-buffer extraction remain unimplemented |
+| Opt-in visible-window recorder and native live-effects hook | Independent Windows recorder implemented; experimental D3D11/DXGI post-processing shim compiles; PyTorch game-frame input, depth/motion/history extraction, and real-game validation remain unimplemented |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
 TrSS is independent research software. The engine must not label a conventional filter or generic super-resolution model as neural rendering.
@@ -258,9 +258,9 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 
 1. **A verified model-specific neural-rendering model.** The generic JSON adapter and a specialized HNet-style 16-to-4 frame contract are implemented, but the actual graph and legally usable parameters are not bundled. Exact tensor semantics, weights, precision, temporal behavior, and all model-specific post-processing still require verification against a compatible model.
 2. **Model parameters.** Source code and trained weights are different things. No proprietary graphics DLLs, extracted vendor parameters, or trained model are bundled with TrSS.
-3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
+3. **A neural-model graphics-frame source.** The experimental D3D11/DXGI shim applies a post-processing shader to a presented image, but no live game color/depth/motion/history buffers feed the PyTorch model. Model commands still receive local images and explicit arrays.
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
-5. **Live GPU integration.** There is no TrSS Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
+5. **Live PyTorch integration.** There is no TrSS Vulkan layer, and the D3D11 post-processing shim does not yet execute the PyTorch checkpoint. `hnet-frame` still processes local frame files through a supplied model.
 6. **Physical hardware validation.** No TrSS run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
 7. **End-to-end native validation.** The `xmx-frame` command now connects TrSS's frame contract to the pinned Vulkan/XMX runner, but CI only compiles the native C runtime and tests the bridge with a fake frame runner. The full shader build, a compatible licensed logical-weight file, and an actual Arc B580 render are still required to validate the path.
 
