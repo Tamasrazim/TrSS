@@ -37,7 +37,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Live game/desktop frame capture and integration | Not implemented |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
-This is independent research software, not an Intel or NVIDIA product. It does not claim to be NVIDIA DLSS 5, and the engine must not label a conventional filter or generic super-resolution model as neural rendering.
+TrSS is independent research software. The engine must not label a conventional filter or generic super-resolution model as neural rendering.
 
 ## What is implemented
 
@@ -175,7 +175,7 @@ See [docs/DIRECTX12.md](docs/DIRECTX12.md) for details and current limits. Full 
 
 ### Run the experimental native Intel Arc XMX frame path
 
-This path uses the vendored Vulkan/XMX graph directly, not OpenVINO. It requires the Vulkan SDK/loader, a GCC or Clang toolchain that supports `_Float16` (MSVC is not supported by the vendored native CMake project), the generated SPIR-V shaders, and a compatible legal `fully_logical=true` safetensors file. TrSS does not include trained weights, proprietary DLLs, or extracted vendor parameters.
+This path uses the native Vulkan/XMX graph directly as a separate execution path. It requires the Vulkan SDK/loader, a GCC or Clang toolchain that supports `_Float16` (MSVC is not supported by the vendored native CMake project), the generated SPIR-V shaders, and a compatible legal `fully_logical=true` safetensors file. TrSS does not include trained weights, proprietary DLLs, or extracted vendor parameters.
 
 From a shell where CMake can find the Vulkan SDK and the GCC/Clang toolchain, build the native source out of tree:
 
@@ -190,7 +190,7 @@ Then run an offline frame:
 trss xmx-frame --weights "models\your-logical-weights.safetensors" --color "frames\input.png" --output "work\rendered.png" --warmup 1 --iterations 5 --report "logs\xmx-frame.json"
 ```
 
-When a machine has multiple Vulkan adapters, use `--vulkan-device "B580"` only if that substring uniquely identifies the target card. The command verifies the reported Vulkan device name contains `Arc`. Its FPS-equivalent number reflects only the warmed native frame-runner timing, not complete game FPS. This path has not yet been validated on a physical Arc B580 and does not capture live game frames or prove DLSS 5 compatibility.
+When a machine has multiple Vulkan adapters, use `--vulkan-device "B580"` only if that substring uniquely identifies the target card. The command verifies the reported Vulkan device name contains `Arc`. Its FPS-equivalent number reflects only the warmed native frame-runner timing, not complete game FPS. This path has not yet been validated on a physical Arc B580 and does not capture live game frames.
 
 ### Run the tests
 
@@ -203,7 +203,7 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 ## Still missing for actual neural rendering
 
 1. **A verified model-specific neural-rendering model.** The generic JSON adapter and a specialized HNet-style 16-to-4 frame contract are implemented, but the actual graph and legally usable parameters are not bundled. Exact tensor semantics, weights, precision, temporal behavior, and all model-specific post-processing still require verification against a compatible model.
-2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with TrSS.
+2. **Model parameters.** Source code and trained weights are different things. No proprietary graphics DLLs, extracted vendor parameters, or trained model are bundled with TrSS.
 3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
 5. **Live GPU integration.** There is no TrSS Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
@@ -212,15 +212,13 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 
 A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The immediate engineering path is to finish the native XMX execution bridge and model-loader contract, validate it with a legally usable model artifact, then measure real-frame latency and visual quality on the physical B580.
 
-## Research references
+## Dependencies and licensing
 
-- [DLSS-NR on Intel](https://github.com/Uzbekunknown/dlss-nr-on-intel) — experimental Intel Xe2 neural-rendering research with a Vulkan path. Its current code is a research reference; the published project requires separate compatible model material and should not be copied without retaining its Apache-2.0 license and notices.
-- [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
-- [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
+TrSS uses external runtimes and libraries for model inference, training, and native graphics execution. Required license and notice files are retained with the relevant source. Pretrained neural-rendering weights and datasets are not bundled.
 
-The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active TrSS rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `TrSS_VULKAN_DEVICE` only when its device-name substring uniquely identifies an Arc-named Vulkan adapter.
+The native Vulkan/XMX source is kept inside this repository under `vendor/`. Its code, shaders, and redistribution boundaries must follow the license and notice files included with the source. See [dependency and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md) for the project's rules.
 
-These are technical references, not opaque third-party applications wrapped by TrSS. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
+Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
 ## Development rules
 
