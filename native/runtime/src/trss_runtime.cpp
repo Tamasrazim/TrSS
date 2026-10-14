@@ -17,6 +17,7 @@
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <d2d1.h>
+#include <d2d1helper.h>
 #include <dwrite.h>
 #include <windowsx.h>
 #include <dxgi1_2.h>
@@ -28,6 +29,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
+#include <cwchar>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -657,7 +660,7 @@ void draw_text(
     ID2D1RenderTarget* target, IDWriteTextFormat* format,
     const std::wstring& value, const D2D1_RECT_F& bounds,
     ID2D1Brush* brush) {
-    target->DrawTextW(
+    target->DrawText(
         value.c_str(), static_cast<UINT32>(value.size()), format,
         bounds, brush, D2D1_DRAW_TEXT_OPTIONS_CLIP,
         DWRITE_MEASURING_MODE_NATURAL);
@@ -1062,7 +1065,7 @@ void set_menu_cursor(bool visible);
 
 LRESULT CALLBACK runtime_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     const bool visible = g_menuVisible.load();
-    if (message == WM_KEYDOWN && wParam == VK_PRIOR &&
+    if (message == WM_KEYDOWN && wParam == VK_PRIOR && (lParam & (1LL << 30)) == 0 &&
         (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
         g_menuVisible = !g_menuVisible.load();
         set_menu_cursor(g_menuVisible.load());
