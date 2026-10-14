@@ -6,7 +6,7 @@ It is designed to be handed to testers who are not developers. It provides a pre
 
 ## What it records
 
-- The visible client area of one application window, saved as sequential RGB PNG images.
+- A screen crop matching the client area of one selected application window, saved as sequential RGB PNG images. The chosen window must remain active; recording stops if focus changes.
 - Actual elapsed timestamps for each saved frame and the requested capture rate.
 - The game/application label supplied by the participant, the capture size, the frame count, skipped capture slots, and whether the session completed.
 - The operating-system version, CPU model, available graphics-adapter names and driver versions, and total installed RAM when available.
@@ -44,7 +44,7 @@ You can also run **python run_recorder.py** from the repository directory after 
 3. Select **Preview**. Confirm the preview contains only the intended application and no private information.
 4. Choose 5, 10, 15, or 30 frames per second and a 5, 10, 15, or 30 second duration. Short, focused samples are preferred.
 5. Choose an output folder. Check both permission and sharing confirmations only if they are true for your situation.
-6. Select **Start capture**. The recorder minimizes and brings the selected window forward. It records only that window's client area and does not record audio.
+6. Select **Start capture**. The recorder minimizes and brings the selected window forward. Keep that application active throughout the sample. If another window takes focus, recording stops and the usable partial sample is packaged with an interruption reason. Audio is not recorded.
 7. To stop early, press **Ctrl + Alt + F10**. The app returns when recording and ZIP verification finish.
 8. Review the generated ZIP and its **README.txt** before sending it to the project maintainer. Send it through the channel the maintainer explicitly provides; the recorder itself will not upload it.
 
@@ -82,7 +82,7 @@ The executable will be written to **dist\TrSS-Data-Recorder.exe**. Build and tes
 
 ## Troubleshooting
 
-**Preview is black.** Switch the application to borderless-windowed mode, make sure it is not minimized, refresh the window list, and preview again. Protected video surfaces and some exclusive-fullscreen paths may not be capturable.
+**Preview is black or fails.** Switch the application to borderless-windowed mode, make sure it is not minimized, refresh the window list, and preview again. The app must become the foreground window for the preview to proceed. Protected video surfaces and some exclusive-fullscreen paths may not be capturable.
 
 **Recording stops after a resize.** Keep the selected application's render size fixed during a session. The recorder stops if the frame dimensions change so the manifest does not mix resolutions.
 
