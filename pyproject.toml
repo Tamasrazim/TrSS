@@ -25,6 +25,7 @@ trss-audit-dataset = "trss.training.audit_dataset:main"
 trss-review-dataset = "trss.training.review_dataset:main"
 trss-generate-scene-dataset = "trss.training.generate_scene_dataset:main"
 trss-prepare-pilot = "trss.training.prepare_pilot:main"
+trss-evaluate-checkpoint = "trss.training.evaluate_checkpoint:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]
