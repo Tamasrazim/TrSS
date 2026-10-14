@@ -233,3 +233,16 @@ The training report records the checkpoint format, hashes of both manifests, dev
 **Important limits:** this is a spatial 2x upscaling experiment, not the temporal reconstruction model. It does not receive true game-rendered low-resolution inputs and cannot learn from this dataset how to use game depth, motion vectors, disocclusion masks, or temporal history. The pairs are formed by downsampling the recorded targets, which is useful for a first real-content experiment but does not reproduce the game's original low-resolution rendering pipeline. Do not treat good validation metrics as proof of in-game quality or Arc B580 real-time performance. Keep recordings and extracted game frames local unless you have permission to redistribute them.
 
 Use ETS2 first because it is an easy place to collect long, controlled driving footage. Alan Wake can be a second dataset with darker lighting and bright flashlight/highlight transitions. The Crew 2 can follow for faster motion. Keep PUBG out of the initial capture/integration tests: do not use process hooks or other unapproved tools with its anti-cheat system. Ordinary recordings are enough for this RGB-only first step.
+
+
+### Inspect the trained spatial output
+
+After the spatial training command finishes, evaluate its best checkpoint on the held-out clips and build a local HTML gallery:
+
+```powershell
+python -m trss.training.evaluate_spatial --checkpoint logs\ets2-spatial\checkpoint-best.pt --manifest data\ets2-spatial\validation.jsonl --output-dir logs\ets2-spatial-evaluation --device xpu --tile-size 256 --tile-overlap 16 --max-previews 12
+```
+
+Open `logs\ets2-spatial-evaluation\index.html`. Each sample shows the enlarged low-resolution input, bicubic baseline, TrSS spatial prediction, and captured target. The accompanying `evaluation-report.json` records the checkpoint and manifest SHA-256 hashes, evaluation device, per-frame MAE/RMSE/PSNR, the aggregate scores, and whether the model beat bicubic interpolation. Unless `--max-frames` is supplied, scores cover the entire validation manifest; `--max-previews` only limits how many examples are shown in the gallery.
+
+Start with a few modest recordings and a short training run before trying long sessions. A result that does not beat bicubic is still useful feedback: inspect the comparison gallery and metrics instead of assuming the learned output is better. Keep the first experiment RGB-only until a valid, renderer-specific path for depth, motion, and temporal history is available.
