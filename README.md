@@ -4,7 +4,7 @@
 
 TrSS is an experimental, local-first neural-rendering research engine targeting Intel Arc GPUs, with the Arc B580 12 GB as its first hardware target. The long-term goal is photorealistic neural appearance reconstruction: learning to improve lighting, materials, fine detail, and temporal stability. Super-resolution is an optional component, not the entire product.
 
-TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, and experimental Vulkan/XMX research backend.
+TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, an experimental Vulkan/XMX research backend, and a first-party Direct3D 12 compute bring-up target.
 
 > **Current status:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. The training pipeline remains in the repository, but no trained weights or dataset are bundled. The native backend still uses a separate fixed research graph, and there is no live-game capture hook or completed physical B580 validation.
 
@@ -12,7 +12,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 
 **Suggested GitHub repository description**
 
-> TrSS (Tamasrazim's Real-time Scene Synthesis) is an experimental, local-first neural-rendering engine targeting Intel Arc GPUs, with a first-party PyTorch training pipeline and Vulkan/XMX research backend. Photorealistic appearance reconstruction is the goal; the current model is a baseline, not a finished renderer.
+> TrSS (Tamasrazim's Real-time Scene Synthesis) is an experimental neural-rendering engine for Intel Arc, with PyTorch training and Direct3D 12/Vulkan GPU research backends. Photorealistic appearance reconstruction remains the goal; the current model is a baseline.
 
 ## Project progress
 
@@ -29,6 +29,7 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Python inference, model inspection, and device selection | Implemented |
 | Frame/tensor contracts and offline frame adapters | Implemented |
 | Temporal-history safety and CPU-side tests | Implemented |
+| Native Direct3D 12 compute bring-up | Experimental; shader dispatch/readback test only |
 | Native Vulkan/XMX execution path | Experimental; hardware validation remains |
 | Verified neural-rendering model and compatible weights | Not yet bundled or validated |
 | Live game/desktop frame capture and integration | Not implemented |
@@ -48,6 +49,7 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Offline frame inference command:** `render-frame` feeds a screenshot and real auxiliary `.npy` buffers through the adapter into a multi-input model, writes raw output tensors, and records preprocessing/compile/inference timings. It is a model-pipeline test, not a live game hook.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
+- **First-party Direct3D 12 compute bring-up:** `native/directx12/` enumerates DXGI adapters, checks D3D12 feature level 12_0 and shader-model support, then runs a deterministic HLSL UAV compute dispatch with fence synchronization and verified readback. Its WARP test is usable in Windows CI; it does not run the trained TrSS neural model and is not B580 performance validation.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **First-party TrSS training model:** a trainable 10-channel, 2x temporal reconstruction baseline with paired-frame validation, motion-aware flip augmentation, full-frame tiled validation, resumable AdamW/RNG checkpoints, and MAE/PSNR comparison against bicubic interpolation. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, XMX-frame orchestration, and temporal history. CI builds the vendored native runtime, host helpers, and all runtime SPIR-V shaders; it still does not execute them on an Arc GPU.
@@ -137,6 +139,19 @@ python -m trss.training.infer --checkpoint models/trss-quality/checkpoint-best.p
 ```
 
 This requires your own paired, legally usable renders plus real depth, motion and correctly reprojected history data. No dataset or pretrained weights are included. The new checkpoint format is not yet compatible with `xmx-frame`; that needs a separate native implementation.
+
+### Check the native Direct3D 12 compute backend
+
+The first-party Direct3D 12 target is independent of the vendored Vulkan runtime. It currently verifies adapter discovery and the native HLSL compute/resource/fence/readback path; model execution is a later milestone.
+
+```powershell
+cmake -S native/directx12 -B native/directx12/build -A x64
+cmake --build native/directx12/build --config Release --parallel
+trss dx12-probe --list-devices
+trss dx12-probe --self-test --device-substring "B580"
+```
+
+Use `trss dx12-probe --warp-self-test` for a software-adapter smoke test when no physical GPU is available. WARP passing is not evidence of Arc acceleration. Full details and current limits are in [docs/DIRECTX12.md](docs/DIRECTX12.md).
 
 ### Run the experimental native Intel Arc XMX frame path
 

@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 from . import __version__
+from .backends.directx12_backend import run_dx12_probe
 from .backends.openvino_backend import BackendUnavailable
 from .backends.xmx_engine import XMXBackendUnavailable, XMXFrameEngine
 from .contracts import parse_value_range
@@ -177,6 +178,32 @@ def _build_parser() -> argparse.ArgumentParser:
     xmx_frame.add_argument("--warmup", type=int, default=1, help="extra warm-up calls after the priming call")
     xmx_frame.add_argument("--iterations", type=int, default=5, help="measured full-frame calls (default: 5)")
     xmx_frame.add_argument("--report", type=Path, help="optional JSON timing and native-device report")
+
+    dx12_probe = commands.add_parser(
+        "dx12-probe",
+        help="enumerate Direct3D 12 adapters or run the experimental native compute self-test",
+    )
+    dx12_modes = dx12_probe.add_mutually_exclusive_group()
+    dx12_modes.add_argument(
+        "--list-devices", action="store_true",
+        help="list DXGI adapters and whether they create a D3D12 feature-level 12_0 device",
+    )
+    dx12_modes.add_argument(
+        "--self-test", action="store_true",
+        help="run an HLSL compute dispatch/readback on the selected hardware adapter",
+    )
+    dx12_modes.add_argument(
+        "--warp-self-test", action="store_true",
+        help="run the same compute check on the WARP software adapter (for CI only)",
+    )
+    dx12_probe.add_argument(
+        "--device-substring",
+        help="optional unique hardware adapter-name substring for --self-test",
+    )
+    dx12_probe.add_argument(
+        "--executable", type=Path,
+        help="optional path to a locally built trss_dx12_probe.exe",
+    )
     return parser
 
 
@@ -1166,6 +1193,27 @@ def _run_xmx_frame(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_dx12_probe(args: argparse.Namespace) -> int:
+    """Launch the standalone, first-party Direct3D 12 compute bring-up target."""
+    if args.device_substring is not None and not args.device_substring.strip():
+        raise ValueError("--device-substring cannot be blank.")
+
+    if args.list_devices:
+        operation = "list-devices"
+    elif args.warp_self_test:
+        operation = "warp-self-test"
+    else:
+        # With no explicit mode, use the real hardware self-test and never silently
+        # substitute WARP or CPU execution.
+        operation = "self-test"
+
+    return run_dx12_probe(
+        operation=operation,
+        executable=args.executable,
+        device_substring=args.device_substring,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1184,6 +1232,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_hnet_frame(args)
         if args.command == "xmx-frame":
             return _run_xmx_frame(args)
+        if args.command == "dx12-probe":
+            return _run_dx12_probe(args)
         parser.error("unknown command")
     except (BackendUnavailable, AdapterSpecError, HNetContractError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"TrSS error: {exc}", file=sys.stderr)

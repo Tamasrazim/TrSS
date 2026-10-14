@@ -1,6 +1,6 @@
 # TrSS engine architecture
 
-TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
+TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. A separate first-party Windows Direct3D 12 compute bring-up target now lives under `native/directx12/`; it validates a basic HLSL dispatch and readback, not the neural model. Neither native path is yet validated for full TrSS neural inference on the physical Arc B580, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
@@ -9,8 +9,10 @@ TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 
 - `trss/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
 - `trss/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
 - `trss/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
-- `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, and experimental `xmx-frame`.
+- `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, experimental `xmx-frame`, and `dx12-probe`.
 - `trss/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
+- `trss/backends/directx12_backend.py`: Windows-only launcher for the separate native D3D12 adapter/compute self-test. It never silently falls back to WARP for the hardware test.
+- `native/directx12/`: first-party C++17 Windows SDK target that enumerates DXGI adapters, queries baseline capabilities, dispatches a deterministic HLSL compute kernel, synchronizes with a fence, and verifies the readback. CI runs the same self-test on the WARP software adapter; this is API-path validation, not physical GPU validation.
 - `trss/training/`: first-party 10-channel, scale-2 temporal reconstruction architecture, explicit paired-frame manifest/dataset reader, and PyTorch training loop. These checkpoints are a separate format and cannot yet run through the fixed-graph `xmx-frame` backend.
 - `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
 - `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI builds the native runtime, host helpers, and runtime SPIR-V shaders, but does not execute the native backend on a GPU.
@@ -22,6 +24,25 @@ TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 
 The separate vendored Vulkan runtime applies the same fail-closed principle. With no override, it requires exactly one Vulkan adapter name containing `Arc`. Set `TrSS_VULKAN_DEVICE` to a more specific name substring only when it uniquely identifies the intended Arc adapter; an explicit override that matches a non-Arc device fails before Vulkan device creation. This selection code is source-level hardening; physical Vulkan startup is not yet part of Python CI.
 
 The Windows/Linux driver and OpenVINO GPU plugin are system requirements. A successful CPU-only CI run is not hardware validation.
+
+## Native Direct3D 12 compute bring-up
+
+The first-party target is intentionally separate from `vendor/dlss-nr-intel/`. It links the Windows SDK's D3D12, DXGI, and D3D compiler libraries; there is no Vulkan dependency in this target.
+
+Build from the repository root in a Visual Studio developer environment:
+
+```powershell
+cmake -S native/directx12 -B native/directx12/build -A x64
+cmake --build native/directx12/build --config Release --parallel
+trss dx12-probe --list-devices
+trss dx12-probe --self-test --device-substring "B580"
+```
+
+The hardware test selects a unique adapter whose name contains `Arc` by default. When the device name differs, inspect the JSON device list and pass a more specific `--device-substring`. Ambiguous selection and missing D3D12 feature-level 12_0 support fail closed.
+
+On Windows CI or a machine without an Arc GPU, run `trss dx12-probe --warp-self-test`. That uses Microsoft's WARP software adapter and checks the real D3D12 compute pipeline, resource bindings, queue submission, fence completion, and buffer readback. It does not test Intel hardware or performance.
+
+**Current boundary:** this is a compute substrate test, not the first-party neural model backend yet. The PyTorch checkpoint uses convolutions, GELU activations, context downsampling, pixel shuffle, and a temporal head. Those operations still need a matching D3D12/HLSL implementation, a weight-loading format, tensor/resource scheduling, and image-quality comparisons. The self-test must not be described as neural inference or live-game support.
 
 ## Single-image engine versus tensor engine
 

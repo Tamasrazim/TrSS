@@ -1,0 +1,25 @@
+name: DirectX 12 backend build and compute test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  directx12-build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out TrSS
+        uses: actions/checkout@v4
+
+      - name: Configure the native Direct3D 12 target
+        run: cmake -S native/directx12 -B build/directx12 -A x64
+
+      - name: Compile the native backend
+        run: cmake --build build/directx12 --config Release --parallel
+
+      - name: Run the D3D12 compute roundtrip on WARP
+        run: .\build\directx12\Release\trss_dx12_probe.exe --warp-self-test
