@@ -543,12 +543,12 @@ void reset_render_resources() {
 bool make_d2d_target(BackBufferLayer& layer, ID3D11Texture2D* backBuffer) {
     ComPtr<IDXGISurface> surface;
     if (FAILED(backBuffer->QueryInterface(IID_PPV_ARGS(&surface)))) return false;
-    if (!g_resources.d2dFactory) {
+    if (g_resources.d2dFactory.Get() == nullptr) {
         if (FAILED(D2D1CreateFactory(
                 D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
                 reinterpret_cast<void**>(g_resources.d2dFactory.GetAddressOf())))) return false;
     }
-    if (!g_resources.writeFactory) {
+    if (g_resources.writeFactory.Get() == nullptr) {
         if (FAILED(DWriteCreateFactory(
                 DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                 reinterpret_cast<IUnknown**>(g_resources.writeFactory.GetAddressOf())))) return false;
@@ -575,7 +575,7 @@ bool make_d2d_target(BackBufferLayer& layer, ID3D11Texture2D* backBuffer) {
     if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
             D2D1::ColorF(0x222B37, 1.0f), &layer.buttonBrush))) return false;
 
-    if (!g_resources.titleFormat) {
+    if (g_resources.titleFormat.Get() == nullptr) {
         const HRESULT titleHr = g_resources.writeFactory->CreateTextFormat(
             L"Segoe UI Semibold", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"en-US",
@@ -626,7 +626,8 @@ bool initialize_render_resources(
     g_resources.format = description.Format;
     g_resources.swapChain = swapChain;
 
-    const UINT bufferCount = std::max<UINT>(1, std::min<UINT>(requestedBufferCount, 8));
+    if (requestedBufferCount == 0 || requestedBufferCount > 8) return false;
+    const UINT bufferCount = requestedBufferCount;
     g_resources.bufferCount = bufferCount;
     if (FAILED(device->QueryInterface(IID_PPV_ARGS(&g_resources.device1)))) return false;
     if (FAILED(context->QueryInterface(IID_PPV_ARGS(&g_resources.context1)))) return false;
@@ -900,6 +901,9 @@ void render_frame(IDXGISwapChain* swapChain) {
         activeIndex = swapChain3->GetCurrentBackBufferIndex();
     }
     const UINT bufferCount = std::max<UINT>(1, swapDescription.BufferCount);
+    // Refuse unsupported unusually large chains instead of recreating resources
+    // on every present or touching an index we did not prepare.
+    if (bufferCount > 8 || activeIndex >= bufferCount) return;
 
     ComPtr<ID3D11Texture2D> activeBackBuffer;
     if (FAILED(swapChain->GetBuffer(activeIndex, IID_PPV_ARGS(&activeBackBuffer)))) return;
