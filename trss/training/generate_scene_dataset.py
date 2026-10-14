@@ -440,6 +440,8 @@ def _create_dataset(
 
             _save_rgb(root / low_path, low["color"])
             _save_rgb(root / target_path, high["color"])
+            (root / depth_path).parent.mkdir(parents=True, exist_ok=True)
+            (root / motion_path).parent.mkdir(parents=True, exist_ok=True)
             np.save(root / depth_path, low["depth"].astype(np.float32))
             if frame_index == 0:
                 motion = np.zeros((height, width, 2), dtype=np.float32)
