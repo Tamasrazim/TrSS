@@ -596,37 +596,30 @@ def _scan_all_fixed_drives(
     return games
 
 
+class _BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+class _RGBQUAD(ctypes.Structure):
+    _fields_ = [
+        ("rgbBlue", ctypes.c_ubyte), ("rgbGreen", ctypes.c_ubyte),
+        ("rgbRed", ctypes.c_ubyte), ("rgbReserved", ctypes.c_ubyte),
+    ]
+
+
+class _BITMAPINFO(ctypes.Structure):
+    _fields_ = [("bmiHeader", _BITMAPINFOHEADER), ("bmiColors", _RGBQUAD * 1)]
+
+
 class ExeIconExtractor:
     """Use Windows Shell/GDI APIs to read an executable's associated icon into PNG."""
-
-    class _BITMAPINFOHEADER(ctypes.Structure):
-        _fields_ = [
-            ("biSize", wintypes.DWORD),
-            ("biWidth", wintypes.LONG),
-            ("biHeight", wintypes.LONG),
-            ("biPlanes", wintypes.WORD),
-            ("biBitCount", wintypes.WORD),
-            ("biCompression", wintypes.DWORD),
-            ("biSizeImage", wintypes.DWORD),
-            ("biXPelsPerMeter", wintypes.LONG),
-            ("biYPelsPerMeter", wintypes.LONG),
-            ("biClrUsed", wintypes.DWORD),
-            ("biClrImportant", wintypes.DWORD),
-        ]
-
-    class _RGBQUAD(ctypes.Structure):
-        _fields_ = [
-            ("rgbBlue", ctypes.c_ubyte),
-            ("rgbGreen", ctypes.c_ubyte),
-            ("rgbRed", ctypes.c_ubyte),
-            ("rgbReserved", ctypes.c_ubyte),
-        ]
-
-    class _BITMAPINFO(ctypes.Structure):
-        _fields_ = [
-            ("bmiHeader", _BITMAPINFOHEADER),
-            ("bmiColors", _RGBQUAD * 1),
-        ]
 
     @classmethod
     def save_icon(cls, exe_path: str | Path, output: Path, size: int = 64) -> str | None:
@@ -653,10 +646,29 @@ class ExeIconExtractor:
         if not count or not large_icon:
             return None
 
+        user32.GetDC.argtypes = [wintypes.HWND]
+        user32.GetDC.restype = wintypes.HDC
+        user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+        user32.ReleaseDC.restype = ctypes.c_int
+        user32.DestroyIcon.argtypes = [wintypes.HICON]
+        user32.DestroyIcon.restype = wintypes.BOOL
+        user32.DrawIconEx.argtypes = [
+            wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.HICON,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT, wintypes.HBRUSH, wintypes.UINT,
+        ]
+        user32.DrawIconEx.restype = wintypes.BOOL
+        gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+        gdi32.CreateCompatibleDC.restype = wintypes.HDC
+        gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
+        gdi32.SelectObject.restype = wintypes.HGDIOBJ
+        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+        gdi32.DeleteObject.restype = wintypes.BOOL
+        gdi32.DeleteDC.argtypes = [wintypes.HDC]
+        gdi32.DeleteDC.restype = wintypes.BOOL
         screen_dc = user32.GetDC(None)
         memory_dc = gdi32.CreateCompatibleDC(screen_dc)
-        bitmap_info = cls._BITMAPINFO()
-        bitmap_info.bmiHeader.biSize = ctypes.sizeof(cls._BITMAPINFOHEADER)
+        bitmap_info = _BITMAPINFO()
+        bitmap_info.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
         bitmap_info.bmiHeader.biWidth = size
         bitmap_info.bmiHeader.biHeight = -size
         bitmap_info.bmiHeader.biPlanes = 1
@@ -664,7 +676,7 @@ class ExeIconExtractor:
         bitmap_info.bmiHeader.biCompression = 0
         bits = ctypes.c_void_p()
         gdi32.CreateDIBSection.argtypes = [
-            wintypes.HDC, ctypes.POINTER(cls._BITMAPINFO), wintypes.UINT,
+            wintypes.HDC, ctypes.POINTER(_BITMAPINFO), wintypes.UINT,
             ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD,
         ]
         gdi32.CreateDIBSection.restype = wintypes.HBITMAP
@@ -742,9 +754,10 @@ def _window_pid(hwnd: int) -> int:
     if os.name != "nt" or not hwnd:
         return 0
     pid = wintypes.DWORD()
-    ctypes.windll.user32.GetWindowThreadProcessId(
-        wintypes.HWND(hwnd), ctypes.byref(pid)
-    )
+    user32 = ctypes.windll.user32
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(pid))
     return int(pid.value)
 
 
@@ -753,6 +766,14 @@ def _process_image_path(pid: int) -> str | None:
         return None
     kernel32 = ctypes.windll.kernel32
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
     handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return None
@@ -773,6 +794,15 @@ def _find_game_window(game: GameEntry) -> tuple[int, int] | None:
     if os.name != "nt":
         return None
     user32 = ctypes.windll.user32
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
     expected = os.path.normcase(os.path.abspath(game.exe_path))
     foreground = _foreground_hwnd()
     if foreground:
@@ -801,24 +831,25 @@ def _find_game_window(game: GameEntry) -> tuple[int, int] | None:
     return matches[0] if matches else None
 
 
+class _PDHValueUnion(ctypes.Union):
+    _fields_ = [
+        ("longValue", ctypes.c_long), ("doubleValue", ctypes.c_double),
+        ("largeValue", ctypes.c_longlong), ("ansiStringValue", ctypes.c_char_p),
+        ("wideStringValue", ctypes.c_wchar_p),
+    ]
+
+
+class _PDHCounterValue(ctypes.Structure):
+    _anonymous_ = ("value",)
+    _fields_ = [("status", wintypes.DWORD), ("value", _PDHValueUnion)]
+
+
+class _PDHValueItem(ctypes.Structure):
+    _fields_ = [("name", wintypes.LPWSTR), ("formatted", _PDHCounterValue)]
+
+
 class PDHReader:
     """Read per-process GPU engine utilization and dedicated-memory counters when exposed."""
-
-    class _ValueUnion(ctypes.Union):
-        _fields_ = [
-            ("longValue", ctypes.c_long),
-            ("doubleValue", ctypes.c_double),
-            ("largeValue", ctypes.c_longlong),
-            ("ansiStringValue", ctypes.c_char_p),
-            ("wideStringValue", ctypes.c_wchar_p),
-        ]
-
-    class _CounterValue(ctypes.Structure):
-        _anonymous_ = ("value",)
-        _fields_ = [("status", wintypes.DWORD), ("value", _ValueUnion)]
-
-    class _ValueItem(ctypes.Structure):
-        _fields_ = [("name", wintypes.LPWSTR), ("formatted", _CounterValue)]
 
     def __init__(self) -> None:
         self.query = ctypes.c_void_p()
@@ -874,7 +905,7 @@ class PDHReader:
         if result != 0:
             return None
         items = ctypes.cast(
-            buffer, ctypes.POINTER(self._ValueItem * item_count.value)
+            buffer, ctypes.POINTER(_PDHValueItem * item_count.value)
         ).contents
         values: list[tuple[str, float]] = []
         for item in items:
@@ -951,6 +982,12 @@ class PerformanceReader:
     def _system_cpu(self) -> float | None:
         if os.name != "nt":
             return None
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetSystemTimes.argtypes = [
+            ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+        ]
+        kernel32.GetSystemTimes.restype = wintypes.BOOL
         idle = wintypes.FILETIME()
         kernel = wintypes.FILETIME()
         user = wintypes.FILETIME()
@@ -979,7 +1016,10 @@ class PerformanceReader:
             return {"ram_total_bytes": None, "ram_used_bytes": None, "ram_percent": None}
         status = _MEMORYSTATUSEX()
         status.dwLength = ctypes.sizeof(status)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MEMORYSTATUSEX)]
+        kernel32.GlobalMemoryStatusEx.restype = wintypes.BOOL
+        if not kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             return {"ram_total_bytes": None, "ram_used_bytes": None, "ram_percent": None}
         total = int(status.ullTotalPhys)
         available = int(status.ullAvailPhys)
@@ -997,7 +1037,18 @@ class PerformanceReader:
             return empty
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         PROCESS_VM_READ = 0x0010
-        handle = ctypes.windll.kernel32.OpenProcess(
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.GetProcessTimes.argtypes = [
+            wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+        ]
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid
         )
         if not handle:
@@ -1008,7 +1059,7 @@ class PerformanceReader:
             exit_time = wintypes.FILETIME()
             kernel_time = wintypes.FILETIME()
             user_time = wintypes.FILETIME()
-            if ctypes.windll.kernel32.GetProcessTimes(
+            if kernel32.GetProcessTimes(
                 handle, ctypes.byref(creation), ctypes.byref(exit_time),
                 ctypes.byref(kernel_time), ctypes.byref(user_time),
             ):
@@ -1055,7 +1106,7 @@ class PerformanceReader:
                 pass
             return {"game_cpu_percent": cpu_time, "game_ram_bytes": ram_bytes}
         finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            kernel32.CloseHandle(handle)
 
     def sample(self, game: GameEntry | None) -> dict[str, Any]:
         """Sample the selected game's active process and machine-wide CPU/RAM."""
@@ -2184,13 +2235,6 @@ class GameHubApp:
             pass
         self.root.after(160, self._poll_hotkeys)
 
-    @staticmethod
-    def _wait_hotkey_release(vk: int) -> None:
-        """No sleep or keyboard hook: throttle repeats by letting the UI schedule the next poll."""
-        if os.name != "nt":
-            return
-        # Key-up is tracked by the debouncer below; this function stays deliberately non-blocking.
-        _ = vk
 
     def toggle_capture(self) -> None:
         if self.active_capture:
