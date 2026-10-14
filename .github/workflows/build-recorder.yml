@@ -65,7 +65,7 @@ jobs:
           retention-days: 30
 
       - name: Publish tagged build
-        if: startsWith(github.ref, 'refs/tags/recorder-v${{ github.ref_name }}')
+        if: startsWith(github.ref, 'refs/tags/recorder-v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
