@@ -938,9 +938,9 @@ void render_frame(IDXGISwapChain* swapChain) {
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
     ComPtr<ID3DDeviceContextState> previousState;
-    const HRESULT stateResult = g_resources.context1->SwapDeviceContextState(
+    g_resources.context1->SwapDeviceContextState(
         g_resources.overlayState.Get(), &previousState);
-    if (FAILED(stateResult) || !previousState) return;
+    if (!previousState) return;
 
     // Preserve the game frame to a buffer-specific shader input once the
     // context state is isolated from the game's bound render targets.
