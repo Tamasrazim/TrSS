@@ -77,6 +77,16 @@ The provenance file must be a JSON object with non-empty `dataset_name`, `source
 
 The installed `trss-audit-dataset` command runs the same audit. It returns a non-zero exit code when structural errors or split leakage are found and writes the full JSON report, including per-frame dimensions, depth/motion statistics, and history-valid coverage. If provenance is omitted, the audit warns that licensing and origin are unverified. This is not a visual alignment or legal review: inspect example pairs and verify every asset's terms yourself.
 
+### Visually review paired frames offline
+
+Structural checks cannot tell whether a reference render actually matches its low-resolution input. Build a local HTML gallery with a deterministic, scene-balanced sample of frame pairs:
+
+```powershell
+python -m trss.training.review_dataset --manifest data/train.jsonl --output-dir logs/train-review --max-frames 36 --scene-field scene_id --seed 20261014
+```
+
+Open `logs/train-review/index.html` in a browser. The gallery includes side-by-side input/reference thumbnails, original dimensions, scene labels, history-reset state, searchable cards, and source paths. The adjacent `review-report.json` records the selected manifest lines and any image decoding failures. Thumbnails are local files; the page uses no network resources. A successful gallery build confirms that the selected images could be decoded, not that they are visually aligned or licensed correctly.
+
 ## Start training
 
 \`\`\`powershell

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="170" viewBox="0 0 760 170" role="img" aria-labelledby="title desc">
-  <title id="title">Neural Renderer roadmap progress: 50 percent</title>
-  <desc id="desc">An animated, isometric 3D progress bar. The completed portion stays at 50 percent while a light sweep loops across it.</desc>
+  <title id="title">Neural Renderer roadmap progress: 55 percent</title>
+  <desc id="desc">An animated, isometric 3D progress bar. The completed portion stays at 55 percent while a light sweep loops across it.</desc>
   <defs>
     <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#111419"/>
@@ -25,10 +25,10 @@
       <path d="M24 0H0V22" fill="none" stroke="#ffffff" stroke-opacity=".055" stroke-width="1"/>
     </pattern>
     <clipPath id="filledFront">
-      <rect x="64" y="83" width="300.5" height="34"/>
+      <rect x="64" y="83" width="330.55" height="34"/>
     </clipPath>
     <clipPath id="filledTop">
-      <polygon points="64,83 81,72 381.5,72 364.5,83"/>
+      <polygon points="64,83 81,72 411.55,72 394.55,83"/>
     </clipPath>
   </defs>
 
@@ -37,7 +37,7 @@
 
   <text x="34" y="39" fill="#f4f6f9" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing=".5">NEURAL RENDERER</text>
   <text x="35" y="55" fill="#919aa8" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" letter-spacing="1.1">ENGINEERING ROADMAP</text>
-  <text x="713" y="39" fill="#fafbfd" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">50%</text>
+  <text x="713" y="39" fill="#fafbfd" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">55%</text>
   <text x="713" y="55" fill="#919aa8" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="8" font-weight="700" letter-spacing="1">EST. COMPLETE</text>
 
   <!-- The unfilled track and its raised top and right faces make the bar look 3D. -->
@@ -45,29 +45,29 @@
   <polygon points="64,83 81,72 682,72 665,83" fill="#4b535f" stroke="#8993a1" stroke-width="1"/>
   <polygon points="665,83 682,72 682,106 665,117" fill="#1b2027" stroke="#606a78" stroke-width="1"/>
 
-  <!-- The completed volume is fixed at 50 percent; the moving light is decorative. -->
-  <polygon points="64,83 364.5,83 364.5,117 64,117" fill="url(#metal)" stroke="#f1f4f8" stroke-width="1"/>
-  <polygon points="64,83 81,72 381.5,72 364.5,83" fill="url(#metalTop)" stroke="#ffffff" stroke-width="1"/>
-  <polygon points="364.5,83 381.5,72 381.5,106 364.5,117" fill="#7b8797" stroke="#dfe5ec" stroke-width="1"/>
+  <!-- The completed volume is fixed at 55 percent; the moving light is decorative. -->
+  <polygon points="64,83 394.55,83 394.55,117 64,117" fill="url(#metal)" stroke="#f1f4f8" stroke-width="1"/>
+  <polygon points="64,83 81,72 411.55,72 394.55,83" fill="url(#metalTop)" stroke="#ffffff" stroke-width="1"/>
+  <polygon points="394.55,83 411.55,72 411.55,106 394.55,117" fill="#7b8797" stroke="#dfe5ec" stroke-width="1"/>
 
   <g clip-path="url(#filledFront)">
     <rect x="20" y="82" width="48" height="38" fill="url(#shine)" opacity=".85">
-      <animate attributeName="x" values="18;360;18" dur="2.8s" repeatCount="indefinite"/>
+      <animate attributeName="x" values="18;390;18" dur="2.8s" repeatCount="indefinite"/>
     </rect>
   </g>
   <g clip-path="url(#filledTop)">
     <rect x="15" y="70" width="48" height="16" fill="url(#shine)" opacity=".9">
-      <animate attributeName="x" values="18;375;18" dur="2.8s" repeatCount="indefinite"/>
+      <animate attributeName="x" values="18;405;18" dur="2.8s" repeatCount="indefinite"/>
     </rect>
   </g>
 
   <!-- Small engraved ticks make the empty track read like a technical instrument. -->
   <g stroke="#8f9aaa" stroke-opacity=".65" stroke-width="1">
-    <path d="M94 88v24 M124 88v24 M154 88v24 M184 88v24 M214 88v24 M244 88v24 M274 88v24 M304 88v24 M334 88v24" stroke="#ffffff" stroke-opacity=".65"/>
-    <path d="M394 88v24 M424 88v24 M454 88v24 M484 88v24 M514 88v24 M544 88v24 M574 88v24 M604 88v24 M634 88v24"/>
+    <path d="M94 88v24 M124 88v24 M154 88v24 M184 88v24 M214 88v24 M244 88v24 M274 88v24 M304 88v24 M334 88v24 M364 88v24" stroke="#ffffff" stroke-opacity=".65"/>
+    <path d="M424 88v24 M454 88v24 M484 88v24 M514 88v24 M544 88v24 M574 88v24 M604 88v24 M634 88v24"/>
   </g>
 
-  <circle cx="364.5" cy="100" r="4" fill="#ffffff" stroke="#626d7b" stroke-width="1">
+  <circle cx="394.55" cy="100" r="4" fill="#ffffff" stroke="#626d7b" stroke-width="1">
     <animate attributeName="r" values="3.5;5;3.5" dur="1.35s" repeatCount="indefinite"/>
     <animate attributeName="opacity" values=".78;1;.78" dur="1.35s" repeatCount="indefinite"/>
   </circle>
