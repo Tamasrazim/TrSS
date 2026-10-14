@@ -804,6 +804,8 @@ void draw_menu() {
     target->EndDraw();
 }
 
+void hook_game_window(HWND window);
+
 void render_frame(IDXGISwapChain* swapChain) {
     std::lock_guard<std::mutex> renderLock(g_renderMutex);
     ComPtr<ID3D11Device> device;
@@ -834,7 +836,10 @@ void render_frame(IDXGISwapChain* swapChain) {
         }
     }
 
-    hook_game_window(g_gameWindow);
+    DXGI_SWAP_CHAIN_DESC swapDescription{};
+    if (SUCCEEDED(swapChain->GetDesc(&swapDescription)) && swapDescription.OutputWindow) {
+        hook_game_window(swapDescription.OutputWindow);
+    }
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
     if (value.enabled) {
@@ -937,8 +942,6 @@ HRESULT STDMETHODCALLTYPE hook_resize_buffers(
         ? g_realResizeBuffers(swapChain, bufferCount, width, height, format, flags)
         : DXGI_ERROR_INVALID_CALL;
 }
-
-void hook_game_window(HWND window);
 
 void patch_swap_chain(IDXGISwapChain* swapChain) {
     if (!swapChain) return;
