@@ -13,12 +13,12 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 
 ## Project progress
 
-**Overall engineering estimate toward a complete, live, physically validated neural renderer: 70%**
+**Overall engineering estimate toward a complete, live, physically validated neural renderer: 75%**
 
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled CPU-rendered 3D pilot dataset generator that produces paired 1×/2× frames, geometry-derived depth and motion, and visibility-checked temporal history; the generated data also passes the scene-split and structural-audit integration test. The pilot is synthetic, not game capture, and does not establish photorealistic quality. Actual training, live capture, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a one-command pilot workflow that generates controlled 3D data, splits complete scenes, audits train/validation, and builds a review gallery; a CPU integration test then runs one real optimizer epoch and verifies checkpoint creation. The test weights use synthetic scenes only. Actual game capture, representative training data, photorealistic-quality validation, live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
