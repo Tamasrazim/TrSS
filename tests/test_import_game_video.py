@@ -93,7 +93,7 @@ def test_import_rejects_one_clip_and_identical_recordings(tmp_path):
 def _write_desktop_session(root: Path, offset: int, game_label: str) -> None:
     root.mkdir(parents=True)
     (root / ".trss-desktop-capture-session").write_text(
-        "Created by TrSS Desktop Capture. Safe for --force replacement.\\n",
+        "Created by TrSS Desktop Capture. Safe for --force replacement.\n",
         encoding="utf-8",
     )
     frame_dir = root / "frames"
@@ -117,7 +117,7 @@ def _write_desktop_session(root: Path, offset: int, game_label: str) -> None:
             "motion_units": "unknown",
         })
     (root / "capture-manifest.jsonl").write_text(
-        "".join(json.dumps(row) + "\\n" for row in manifest_rows), encoding="utf-8"
+        "".join(json.dumps(row) + "\n" for row in manifest_rows), encoding="utf-8"
     )
     (root / "session.json").write_text(
         json.dumps({
@@ -182,7 +182,7 @@ def test_import_rejects_capture_manifest_path_traversal(tmp_path):
     manifest = second / "capture-manifest.jsonl"
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()]
     rows[1]["color"] = "../outside.png"
-    manifest.write_text("".join(json.dumps(row) + "\\n" for row in rows), encoding="utf-8")
+    manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
     with pytest.raises(ValueError, match="outside the capture folder"):
         import_game_videos([first, second], tmp_path / "invalid-import")
