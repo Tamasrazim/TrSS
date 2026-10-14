@@ -47,6 +47,16 @@ For a non-reset frame, \`history\` must be an RGB image aligned to the high-reso
 
 Create separate training and validation manifests. Split by scene or capture sequence rather than randomly splitting neighboring frames, otherwise almost identical frames can leak across the two sets. Before training, TrSS also rejects any exact low-resolution input frame or target frame reused across the two manifests. This catches direct file reuse, but it cannot detect near-duplicate frames saved under different paths; scene-level separation remains necessary. Use original renders and asset packs whose licences permit dataset creation and model training; keep their sources and licences in an accompanying provenance file.
 
+### Build scene-separated train and validation manifests
+
+Put a `scene_id` on every row in one source JSONL manifest. Use the same ID for every frame from a complete scene or capture sequence, and distinct IDs for sequences that must not cross the training/validation boundary. The splitter validates that the referenced files exist, refuses exact low-resolution input or target files labelled as different scenes, preserves additional metadata fields, and rewrites file paths so the generated manifests still resolve from their output folder.
+
+```powershell
+python -m trss.training.split_manifest --input-manifest data/all-frames.jsonl --train-output data/train.jsonl --validation-output data/validation.jsonl --scene-field scene_id --validation-fraction 0.2 --seed 20261014
+```
+
+The installed `trss-split-dataset` command runs the same tool. Its JSON report lists which scenes and frame counts went into each split. The requested fraction is approximate because complete scenes are indivisible; use more balanced capture-sequence sizes when you need closer proportions. The tool only organizes existing records: it does not generate paired renders, validate visual alignment, synthesize depth/motion, or train weights. Existing output manifests are protected unless `--force` is supplied.
+
 ## Start training
 
 \`\`\`powershell
