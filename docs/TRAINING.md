@@ -59,6 +59,14 @@ Open `data/trss-pilot/review-gallery/index.html` and inspect the pairs manually 
 
 The CPU software rasterizer uses first-party box geometry and is explicitly synthetic. It renders the same camera/scene state at 1× and 2× resolution, computes normalized linear view-space depth and current-minus-previous motion from known geometry, and estimates previous-frame history using object-ID/depth visibility checks. It is **not** a live-game capture hook, production GPU buffer reader, photorealistic renderer, or Arc performance test. Passing the structural audit cannot prove semantic alignment or model quality.
 
+To verify that the generated manifests reach the actual optimizer and checkpoint writer, run a small **CPU-only smoke-training epoch**. It is a software-pipeline test; the resulting weights are trained only on the synthetic pilot and are not useful evidence of game quality.
+
+```powershell
+python -m trss.training.train --train-manifest data/trss-pilot/train.jsonl --validation-manifest data/trss-pilot/validation.jsonl --output-dir logs/trss-pilot-training-smoke --device cpu --channels 8 --blocks 1 --context-blocks 0 --patch-size 8 --batch-size 1 --epochs 1 --seed 20261014
+```
+
+This produces `training-report.json`, `checkpoint-last.pt`, and `checkpoint-best.pt`. Once the smoke test works, actual model development still requires a legally usable dataset captured from a suitable renderer and subsequent validation on the intended hardware.
+
 ### Build scene-separated train and validation manifests
 
 Put a `scene_id` on every row in one source JSONL manifest. Use the same ID for every frame from a complete scene or capture sequence, and distinct IDs for sequences that must not cross the training/validation boundary. The splitter validates that the referenced files exist, refuses exact low-resolution input or target files labelled as different scenes, preserves additional metadata fields, and rewrites file paths so the generated manifests still resolve from their output folder.

@@ -157,6 +157,14 @@ python -m trss.training.prepare_pilot --output-dir data/trss-pilot --scenes 6 --
 
 Open `data/trss-pilot/review-gallery/index.html` to inspect paired images and `data/trss-pilot/pipeline-report.json` for the summary. The individual artifacts include `train.jsonl`, `validation.jsonl`, `dataset-audit.json`, and `generation-report.json`. Existing output folders are preserved unless `--force` is explicitly provided. This uses controlled, flat-shaded CPU-rendered scenes and is not a game capture or performance test.
 
+After inspecting the data, you can verify the training/checkpoint path with a one-epoch CPU smoke test:
+
+```powershell
+python -m trss.training.train --train-manifest data/trss-pilot/train.jsonl --validation-manifest data/trss-pilot/validation.jsonl --output-dir logs/trss-pilot-training-smoke --device cpu --channels 8 --blocks 1 --context-blocks 0 --patch-size 8 --batch-size 1 --epochs 1 --seed 20261014
+```
+
+The smoke checkpoint is trained on synthetic scenes only; it is not a usable real-game rendering model.
+
 ### Train the original TrSS reconstruction model
 
 The first-party model and training contract are documented in [docs/TRAINING.md](docs/TRAINING.md). PyTorch's official Intel GPU wheels are needed for training on an Arc card; the regular runtime install does not include PyTorch.
