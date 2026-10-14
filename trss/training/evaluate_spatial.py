@@ -181,6 +181,7 @@ def evaluate_spatial_checkpoint(
         previews: list[dict[str, Any]] = []
 
         for position, row_index in enumerate(selected):
+            row = dataset.rows[row_index]
             sample = dataset[row_index]
             low = sample["low_res"].unsqueeze(0)
             target = sample["target"].unsqueeze(0)
