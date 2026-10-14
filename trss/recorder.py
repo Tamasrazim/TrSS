@@ -865,7 +865,10 @@ class TrSSRecorderApp:
         # Minimize before the first frame so this tool never records its own interface.
         self.root.iconify()
         try:
-            ctypes.windll.user32.SetForegroundWindow(choice.hwnd)
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+            user32.SetForegroundWindow.restype = wintypes.BOOL
+            user32.SetForegroundWindow(choice.hwnd)
         except (AttributeError, OSError):
             pass
 
@@ -916,13 +919,18 @@ class TrSSRecorderApp:
         captured_height: int | None = None
         status = "completed"
         error_summary: str | None = None
+        termination_reason = "duration_limit"
         last_elapsed = 0.0
 
         try:
             while True:
                 if not _wait_until(next_deadline, self.stop_event):
+                    termination_reason = (
+                        "stop_event" if self.stop_event.is_set() else "early_stop_hotkey"
+                    )
                     break
                 if started_at is not None and time.monotonic() - started_at >= duration:
+                    termination_reason = "duration_limit"
                     break
 
                 frame = grab_window(choice.hwnd)
@@ -975,12 +983,15 @@ class TrSSRecorderApp:
 
         except CaptureError as exc:
             status = "interrupted"
+            termination_reason = "capture_error"
             error_summary = str(exc)
         except (OSError, ValueError, RuntimeError) as exc:
             status = "interrupted"
+            termination_reason = "capture_error"
             error_summary = f"Capture failed ({type(exc).__name__}). Check the output drive and window."
         except Exception as exc:  # Preserve a usable partial session if an unexpected failure occurs.
             status = "interrupted"
+            termination_reason = "unexpected_error"
             error_summary = f"Unexpected capture error ({type(exc).__name__})."
 
         if not rows:
@@ -1003,6 +1014,7 @@ class TrSSRecorderApp:
                 "started_utc": started_utc,
                 "ended_utc": ended_utc,
                 "status": status,
+                "termination_reason": termination_reason,
                 "game_or_application": game_label,
                 "scene_label": scene_label,
                 "capture_method": "Windows visible application client-area screenshot",
