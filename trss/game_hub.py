@@ -9,7 +9,7 @@ from __future__ import annotations
 import ctypes
 from collections import Counter
 from ctypes import wintypes
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field as dataclass_field
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -34,6 +34,15 @@ except ImportError as exc:
         "TrSS Game Library needs Pillow. Install it with: python -m pip install -e ."
     ) from exc
 
+from trss.game_matrix import (
+    FIELD_GROUPS,
+    STANDARD_SETTINGS,
+    append_game_matrix_row,
+    build_matrix_row,
+    parse_additional_settings,
+    parse_graphics_config_file,
+    probe_game_settings,
+)
 from trss.recorder import (
     APP_NAME as RECORDER_NAME,
     CaptureError,
@@ -49,7 +58,7 @@ from trss.recorder import (
 
 
 APP_NAME = "TrSS Game Library"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 STOP_CAPTURE_HOTKEY = "Ctrl + Alt + F8"
 SHOW_LIBRARY_HOTKEY = "Ctrl + Alt + F9"
 STOP_NOW_HOTKEY = "Ctrl + Alt + F10"
@@ -1195,6 +1204,13 @@ class CaptureSession:
     status: str = "recording"
     error: str | None = None
     stop_reason: str = "user_stop"
+    # The UI asks for the in-game graphics profile after collection stops. The
+    # worker waits here so the finished ZIP contains the reviewed settings.
+    review_event: threading.Event = dataclass_field(default_factory=threading.Event)
+    detected_settings: dict[str, Any] = dataclass_field(default_factory=dict)
+    graphics_settings: dict[str, Any] = dataclass_field(default_factory=dict)
+    matrix_csv_path: str | None = None
+    matrix_index_error: str | None = None
 
 
 def _append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -1634,7 +1650,8 @@ class GameHubApp:
         button_block.pack(side="right", anchor="n")
         ttk.Button(button_block, text="Rescan", command=self.scan_installed_games).pack(side="left", padx=(0, 7))
         ttk.Button(button_block, text="Add folder", command=self.add_folder).pack(side="left", padx=(0, 7))
-        ttk.Button(button_block, text="Scan all drives", command=self.scan_all_drives).pack(side="left")
+        ttk.Button(button_block, text="Scan all drives", command=self.scan_all_drives).pack(side="left", padx=(0, 7))
+        ttk.Button(button_block, text="Matrix folder", command=self.open_matrix_folder).pack(side="left")
 
         toolbar = tk.Frame(self.shell, bg="#12171e", highlightthickness=1, highlightbackground="#252c36")
         toolbar.pack(fill="x", pady=(0, 12))
@@ -1739,6 +1756,15 @@ class GameHubApp:
 
     def set_status(self, value: str) -> None:
         self.status_var.set(value)
+
+    def open_matrix_folder(self) -> None:
+        """Open the local CSV/JSONL matrix without uploading any collected data."""
+        matrix_dir = APP_DATA / "matrix"
+        try:
+            matrix_dir.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(matrix_dir))
+        except (OSError, AttributeError) as exc:
+            messagebox.showerror(APP_NAME, f"Cannot open the local matrix folder: {exc}")
 
     def set_filter(self, value: str) -> None:
         self.search_filter = value
@@ -2104,6 +2130,276 @@ class GameHubApp:
             session.stop_event.set()
         self.set_status("Stopping collection and packaging the saved sample…")
 
+    def _review_graphics_settings(self, session: CaptureSession) -> None:
+        """Ask for the exact settings used in this run before its dataset is packaged."""
+        detected = session.detected_settings or {}
+        initial_values = dict(detected.get("values") or {})
+        baseline_values = dict(initial_values)
+        baseline_sources = dict(detected.get("sources") or {})
+        baseline_names = dict(detected.get("source_names") or {})
+        profile_values: dict[str, Any] = {}
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Graphics Settings Review — {session.game.name}")
+        dialog.geometry("1020x850")
+        dialog.minsize(860, 680)
+        dialog.configure(bg=BACKGROUND)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.lift()
+
+        outer = tk.Frame(dialog, bg=BACKGROUND)
+        outer.pack(fill="both", expand=True, padx=18, pady=14)
+        tk.Label(
+            outer, text="GRAPHICS PROFILE / POST-CAPTURE REVIEW",
+            bg=BACKGROUND, fg=TEXT, font=("Segoe UI Semibold", 17), anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            outer,
+            text=(
+                f"{session.game.name} · {len(initial_values)} setting value(s) read from "
+                f"{int(detected.get('matched_file_count') or 0)} local configuration file(s). "
+                "Config values may be defaults or stale: compare them with the game's own menu."
+            ),
+            bg=BACKGROUND, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=960,
+        ).pack(fill="x", pady=(5, 10))
+
+        identity = tk.Frame(outer, bg=BACKGROUND)
+        identity.pack(fill="x", pady=(0, 8))
+        tk.Label(identity, text="PROFILE LABEL", bg=BACKGROUND, fg=MUTED, font=("Consolas", 9)).grid(row=0, column=0, sticky="w")
+        profile_var = tk.StringVar(
+            master=dialog, value=f"Run {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        ttk.Entry(identity, textvariable=profile_var, width=34).grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(3, 0))
+        tk.Label(identity, text="EXPERIMENT / SWEEP GROUP", bg=BACKGROUND, fg=MUTED, font=("Consolas", 9)).grid(row=0, column=1, sticky="w")
+        group_var = tk.StringVar(master=dialog, value=session.game.name)
+        ttk.Entry(identity, textvariable=group_var, width=34).grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(3, 0))
+        identity.columnconfigure(0, weight=1)
+        identity.columnconfigure(1, weight=1)
+
+        coverage_var = tk.StringVar(master=dialog)
+        tk.Label(
+            outer, textvariable=coverage_var, bg=BACKGROUND, fg="#dce2ea",
+            font=("Consolas", 9, "bold"), anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        scroll_host = tk.Frame(outer, bg=BACKGROUND)
+        scroll_host.pack(fill="both", expand=True)
+        canvas = tk.Canvas(scroll_host, bg=BACKGROUND, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(scroll_host, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        body = tk.Frame(canvas, bg=BACKGROUND)
+        body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def update_scroll_region(_event: tk.Event | None = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def resize_body(event: tk.Event) -> None:
+            canvas.itemconfigure(body_window, width=event.width)
+
+        body.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", resize_body)
+
+        field_vars: dict[str, tk.StringVar] = {}
+        source_labels: dict[str, tk.Label] = {}
+        field_rows: dict[str, tk.Entry] = {}
+        for group_name, field_names in FIELD_GROUPS:
+            group_frame = tk.LabelFrame(
+                body, text=group_name.upper(), bg=BACKGROUND, fg=TEXT,
+                font=("Segoe UI Semibold", 9), bd=1, relief="solid",
+                highlightbackground="#252c36", padx=10, pady=5,
+            )
+            group_frame.pack(fill="x", padx=(0, 4), pady=(0, 9))
+            group_frame.columnconfigure(1, weight=1)
+            for row_number, field_name in enumerate(field_names):
+                current = initial_values.get(field_name)
+                value_var = tk.StringVar(master=dialog, value="" if current is None else str(current))
+                field_vars[field_name] = value_var
+                tk.Label(
+                    group_frame, text=STANDARD_SETTINGS[field_name], bg=BACKGROUND, fg="#d3d9e2",
+                    anchor="w", width=27,
+                ).grid(row=row_number, column=0, sticky="w", padx=(0, 10), pady=3)
+                entry = ttk.Entry(group_frame, textvariable=value_var, width=31)
+                entry.grid(row=row_number, column=1, sticky="ew", padx=(0, 10), pady=3)
+                field_rows[field_name] = entry
+                source_name = baseline_names.get(field_name)
+                source_text = (
+                    f"Detected: {source_name} — verify" if source_name
+                    else "No config value detected"
+                )
+                source_label = tk.Label(
+                    group_frame, text=source_text, bg=BACKGROUND,
+                    fg="#8ea4bf" if source_name else "#687382", anchor="w",
+                    font=("Segoe UI", 8), width=31,
+                )
+                source_label.grid(row=row_number, column=2, sticky="w", pady=3)
+                source_labels[field_name] = source_label
+
+        additional_box = tk.LabelFrame(
+            body, text="ADDITIONAL GAME-SPECIFIC SETTINGS", bg=BACKGROUND, fg=TEXT,
+            font=("Segoe UI Semibold", 9), padx=10, pady=7,
+        )
+        additional_box.pack(fill="x", padx=(0, 4), pady=(0, 9))
+        tk.Label(
+            additional_box,
+            text="One exact setting per line, written as  Setting name = Value. Use this for options not in the standard matrix.",
+            bg=BACKGROUND, fg=MUTED, anchor="w", justify="left", wraplength=900,
+        ).pack(fill="x", pady=(0, 5))
+        additional_text = tk.Text(
+            additional_box, height=5, wrap="none", bg="#11161c", fg=TEXT,
+            insertbackground=TEXT, relief="flat", font=("Consolas", 9),
+        )
+        additional_text.pack(fill="x")
+        detected_additional = detected.get("additional_settings") or {}
+        if detected_additional:
+            additional_text.insert(
+                "1.0",
+                "\n".join(f"{name} = {value}" for name, value in detected_additional.items()),
+            )
+
+        notes_box = tk.LabelFrame(
+            body, text="RUN NOTES (NO PERSONAL OR ACCOUNT DATA)", bg=BACKGROUND, fg=TEXT,
+            font=("Segoe UI Semibold", 9), padx=10, pady=7,
+        )
+        notes_box.pack(fill="x", padx=(0, 4), pady=(0, 8))
+        notes_text = tk.Text(
+            notes_box, height=3, wrap="word", bg="#11161c", fg=TEXT,
+            insertbackground=TEXT, relief="flat", font=("Segoe UI", 9),
+        )
+        notes_text.pack(fill="x")
+
+        def update_coverage(*_args: Any) -> None:
+            filled = sum(bool(variable.get().strip()) for variable in field_vars.values())
+            coverage_var.set(
+                f"STANDARD SETTINGS RECORDED: {filled}/{len(STANDARD_SETTINGS)}  ·  "
+                "Use Unknown or Not supported explicitly; blank fields remain missing."
+            )
+
+        for variable in field_vars.values():
+            variable.trace_add("write", update_coverage)
+        update_coverage()
+
+        verification_var = tk.BooleanVar(master=dialog, value=False)
+        verify_check = ttk.Checkbutton(
+            outer,
+            text="I compared this profile with the game's in-game Graphics / Display menu for this exact run.",
+            variable=verification_var,
+        )
+        verify_check.pack(anchor="w", pady=(8, 5))
+
+        def import_config_file() -> None:
+            selected = filedialog.askopenfilename(
+                parent=dialog,
+                title="Import a game graphics settings file",
+                filetypes=[
+                    ("Game settings", "*.xml *.ini *.cfg *.json *.toml *.txt"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not selected:
+                return
+            parsed = parse_graphics_config_file(selected)
+            values = parsed.get("values") or {}
+            if not values:
+                messagebox.showwarning(
+                    APP_NAME,
+                    "No recognized graphics setting keys were found. TrSS does not import the whole file; only known graphics keys are read.",
+                    parent=dialog,
+                )
+                return
+            base_name = Path(selected).name
+            for field_name, value in values.items():
+                if field_name not in field_vars:
+                    continue
+                field_vars[field_name].set(str(value))
+                baseline_values[field_name] = str(value)
+                baseline_sources[field_name] = "imported_local_config"
+                baseline_names[field_name] = base_name
+                source_labels[field_name].configure(text=f"Imported: {base_name} — verify", fg="#8ea4bf")
+            self.set_status(f"Imported {len(values)} recognized setting value(s) from {base_name}; verify them in-game.")
+
+        footer = tk.Frame(outer, bg=BACKGROUND)
+        footer.pack(fill="x", pady=(8, 0))
+        ttk.Button(footer, text="Import config…", command=import_config_file).pack(side="left")
+
+        def save_profile() -> None:
+            verified = bool(verification_var.get())
+            values: dict[str, str | None] = {
+                field_name: variable.get().strip() or None
+                for field_name, variable in field_vars.items()
+            }
+            sources: dict[str, str] = {}
+            source_names: dict[str, str] = {}
+            for field_name, value in values.items():
+                if value is None:
+                    continue
+                if (
+                    field_name in baseline_values
+                    and value == str(baseline_values[field_name])
+                    and field_name in baseline_sources
+                ):
+                    sources[field_name] = baseline_sources[field_name]
+                    if baseline_names.get(field_name):
+                        source_names[field_name] = baseline_names[field_name]
+                else:
+                    sources[field_name] = "participant_verified" if verified else "participant_reported"
+
+            additional = parse_additional_settings(additional_text.get("1.0", "end-1c"))
+            profile_values.update({
+                "profile_name": profile_var.get().strip() or "Unlabelled run",
+                "experiment_group": group_var.get().strip(),
+                "verified_in_game": verified,
+                "values": values,
+                "sources": sources,
+                "source_names": source_names,
+                "additional_settings": additional,
+                "notes": notes_text.get("1.0", "end-1c").strip(),
+                "files_checked": int(detected.get("files_checked") or 0),
+                "matched_file_count": int(detected.get("matched_file_count") or 0),
+                "matched_file_names": list(detected.get("matched_file_names") or []),
+            })
+            session.graphics_settings = profile_values
+            session.review_event.set()
+            try:
+                dialog.grab_release()
+            except tk.TclError:
+                pass
+            dialog.destroy()
+
+        save_button = ttk.Button(
+            footer,
+            text="Save verified profile" if verification_var.get() else "Save unverified profile",
+            command=save_profile,
+        )
+        save_button.pack(side="right")
+        verification_var.trace_add(
+            "write",
+            lambda *_args: save_button.configure(
+                text="Save verified profile" if verification_var.get() else "Save unverified profile"
+            ),
+        )
+        dialog.protocol("WM_DELETE_WINDOW", save_profile)
+        dialog.wait_window()
+
+        # If window destruction occurs unusually, do not strand the capture worker.
+        if not session.review_event.is_set():
+            session.graphics_settings = {
+                "profile_name": "Unverified run",
+                "experiment_group": "",
+                "verified_in_game": False,
+                "values": initial_values,
+                "sources": baseline_sources,
+                "source_names": baseline_names,
+                "additional_settings": {},
+                "notes": "",
+                "files_checked": int(detected.get("files_checked") or 0),
+                "matched_file_count": int(detected.get("matched_file_count") or 0),
+                "matched_file_names": list(detected.get("matched_file_names") or []),
+            }
+            session.review_event.set()
+
     def _capture_worker(self, session: CaptureSession, hwnd: int) -> None:
         """Capture until stopped; the only limits are user stop, focus loss, or a real error."""
         frame_interval = 1.0 / session.sample_rate
@@ -2186,10 +2482,82 @@ class GameHubApp:
             self.events.put(("capture_error", session.error or "No frames were captured. Focus the game before starting."))
             return
 
-        _append_jsonl(session.folder / "performance.jsonl", metrics_rows)
+        # Read only allowlisted graphics keys from likely local settings files.
+        # The participant still needs to confirm these against the live game menu:
+        # a file can contain an old profile or an engine-specific numeric enum.
+        try:
+            session.detected_settings = probe_game_settings(
+                session.game.name, session.game.install_dir
+            )
+        except Exception as exc:
+            session.detected_settings = {
+                "values": {}, "sources": {}, "source_names": {},
+                "files_checked": 0, "matched_file_count": 0,
+                "matched_file_names": [], "probe_error": type(exc).__name__,
+            }
+
+        # Pause packaging until the user labels and checks the captured configuration.
+        self.events.put(("capture_review", session))
+        session.review_event.wait()
+        graphics_profile = session.graphics_settings or {
+            "profile_name": "Unverified run",
+            "experiment_group": "",
+            "verified_in_game": False,
+            "values": session.detected_settings.get("values", {}),
+            "sources": session.detected_settings.get("sources", {}),
+            "source_names": session.detected_settings.get("source_names", {}),
+            "additional_settings": {},
+            "notes": "",
+            "files_checked": session.detected_settings.get("files_checked", 0),
+            "matched_file_count": session.detected_settings.get("matched_file_count", 0),
+            "matched_file_names": session.detected_settings.get("matched_file_names", []),
+        }
+
         elapsed = round(time.monotonic() - session.started_monotonic, 4)
+        matrix_row = build_matrix_row(
+            session_id=session.session_id,
+            game_name=session.game.name,
+            platform=session.game.platform,
+            started_utc=session.started_utc,
+            elapsed_seconds=elapsed,
+            captured_frames=len(session.frame_rows),
+            performance_rows=metrics_rows,
+            graphics_profile=graphics_profile,
+        )
+        graphics_payload = {
+            "schema_version": "trss.graphics-settings/1.0",
+            "game": {"name": session.game.name, "platform": session.game.platform},
+            "profile": {
+                "name": matrix_row["profile_name"],
+                "experiment_group": matrix_row["experiment_group"],
+                "verified_in_game": matrix_row["profile_verified_in_game"],
+                "notes": matrix_row["participant_notes"],
+            },
+            "settings": matrix_row["settings"],
+            "setting_sources": matrix_row["setting_sources"],
+            "source_file_names": matrix_row["source_file_names"],
+            "additional_game_settings": matrix_row["additional_game_settings"],
+            "automatic_config_probe": {
+                "files_checked": matrix_row["config_discovery"]["files_checked"],
+                "files_with_graphics_settings": matrix_row["config_discovery"]["files_with_graphics_settings"],
+                "matched_file_names": list(graphics_profile.get("matched_file_names") or []),
+                "warning": (
+                    "Detected config values can be stale or use game-specific numeric enums. "
+                    "Only a participant check against the in-game menu marks a profile verified."
+                ),
+            },
+        }
+        (session.folder / "graphics_settings.json").write_text(
+            json.dumps(graphics_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (session.folder / "game_matrix_row.json").write_text(
+            json.dumps(matrix_row, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
         metadata = {
-            "schema_version": "2.0",
+            "schema_version": "3.0",
             "application": {"name": APP_NAME, "version": APP_VERSION},
             "session": {
                 "id": session.session_id,
@@ -2210,6 +2578,21 @@ class GameHubApp:
                 "depth_buffer_collected": False,
                 "motion_vectors_collected": False,
                 "fps_note": "Native TrSS per-present FPS and frametime telemetry is still in development. Values remain null rather than being estimated from refresh rate, screenshots, or GPU load.",
+            },
+            "graphics_matrix": {
+                "settings_file": "graphics_settings.json",
+                "row_file": "game_matrix_row.json",
+                "profile_name": matrix_row["profile_name"],
+                "experiment_group": matrix_row["experiment_group"],
+                "profile_verified_in_game": matrix_row["profile_verified_in_game"],
+                "matrix_row_complete": matrix_row["matrix_row_complete"],
+                "matrix_row_exact": matrix_row["matrix_row_exact"],
+                "settings_hash_sha256": matrix_row["settings_hash_sha256"],
+                "known_standard_settings": matrix_row["settings_coverage"]["known_standard_settings"],
+                "total_standard_settings": matrix_row["settings_coverage"]["total_standard_settings"],
+                "coverage_percent": matrix_row["settings_coverage"]["coverage_percent"],
+                "missing_settings": matrix_row["settings_coverage"]["missing_settings"],
+                "note": "One matrix row represents this recording and its reviewed graphics profile. Repeat capture after changing the game settings to build a multi-profile matrix.",
             },
             "consent": {
                 "policy_version": "2026-10-14",
@@ -2244,6 +2627,13 @@ class GameHubApp:
                 f"Captured {len(session.frame_rows)} frame(s), but ZIP packaging failed ({type(exc).__name__}). Files kept at {session.folder}",
             ))
             return
+
+        try:
+            _jsonl_path, matrix_csv_path = append_game_matrix_row(APP_DATA / "matrix", matrix_row)
+            session.matrix_csv_path = str(matrix_csv_path)
+        except Exception as exc:
+            # The per-session ZIP already contains the matrix row and setting evidence.
+            session.matrix_index_error = type(exc).__name__
         self.events.put((
             "capture_complete",
             {
@@ -2253,6 +2643,12 @@ class GameHubApp:
                 "performance_samples": len(metrics_rows),
                 "status": session.status,
                 "error": session.error,
+                "profile_name": matrix_row["profile_name"],
+                "matrix_row_complete": matrix_row["matrix_row_complete"],
+                "matrix_row_exact": matrix_row["matrix_row_exact"],
+                "settings_coverage": matrix_row["settings_coverage"]["coverage_percent"],
+                "matrix_csv_path": session.matrix_csv_path,
+                "matrix_index_error": session.matrix_index_error,
             },
         ))
 
@@ -2350,23 +2746,47 @@ class GameHubApp:
                     self.set_status(
                         f"CAPTURING · {payload['frames']:,} frames · {payload['elapsed']:.0f}s elapsed · unlimited duration"
                     )
+                elif kind == "capture_review":
+                    try:
+                        self._review_graphics_settings(payload)
+                    except Exception as exc:
+                        # Still package the frames if the review UI itself fails; mark the row unverified.
+                        payload.graphics_settings = {
+                            "profile_name": "Unverified run",
+                            "experiment_group": payload.game.name,
+                            "verified_in_game": False,
+                            "values": payload.detected_settings.get("values", {}),
+                            "sources": payload.detected_settings.get("sources", {}),
+                            "source_names": payload.detected_settings.get("source_names", {}),
+                            "additional_settings": {},
+                            "notes": f"Review dialog failed: {type(exc).__name__}",
+                            "files_checked": payload.detected_settings.get("files_checked", 0),
+                            "matched_file_count": payload.detected_settings.get("matched_file_count", 0),
+                            "matched_file_names": payload.detected_settings.get("matched_file_names", []),
+                        }
+                        payload.review_event.set()
                 elif kind == "capture_complete":
                     self.overlay.update_metrics(self.last_metrics, self.selected_game, False)
+                    completeness = (
+                        "EXACT VERIFIED MATRIX ROW" if payload["matrix_row_exact"]
+                        else f"matrix {payload['settings_coverage']:.1f}% · "
+                             f"{'profile fields filled' if payload['matrix_row_complete'] else 'missing setting fields'}"
+                    )
                     self.set_status(
-                        f"Bundle verified · {payload['frames']:,} frames · {payload['performance_samples']} performance samples · {payload['zip_path']}"
+                        f"Bundle verified · {payload['frames']:,} frames · "
+                        f"{payload['performance_samples']} performance samples · {completeness} · "
+                        f"{payload['zip_path']}"
                     )
-                    summary = (
-                        "Capture bundle created and ZIP integrity checked.\n\n"
-                        f"Frames: {payload['frames']:,}\n"
-                        f"Elapsed: {payload['elapsed']:.1f}s\n"
-                        f"Performance rows: {payload['performance_samples']}\n"
-                        f"Status: {payload['status']}\n\n"
-                        f"Saved to:\n{payload['zip_path']}"
-                    )
-                    if payload["error"]:
-                        summary += f"\n\nNote: {payload['error']}"
-                    # Don't interrupt the game with a dialog; the path is already visible
-                    # in the status line and notification remains in this app's local log.
+                    if payload["matrix_index_error"]:
+                        self.set_status(
+                            f"Bundle contains the settings row, but the shared matrix index could not be updated "
+                            f"({payload['matrix_index_error']}). ZIP: {payload['zip_path']}"
+                        )
+                    elif payload["matrix_csv_path"]:
+                        self.set_status(
+                            f"Bundle verified · {payload['frames']:,} frames · {completeness} · "
+                            f"matrix: {payload['matrix_csv_path']} · ZIP: {payload['zip_path']}"
+                        )
                 elif kind == "capture_error":
                     self.overlay.update_metrics(self.last_metrics, self.selected_game, False)
                     self.set_status(str(payload))
