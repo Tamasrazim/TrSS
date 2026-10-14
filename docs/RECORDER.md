@@ -1,6 +1,6 @@
 # TrSS Game Library
 
-TrSS Game Library is a Windows game launcher and local, opt-in research recorder for TrSS. It discovers installed games, shows one card per executable with the executable's icon, launches games, displays available Windows performance counters, captures game-window samples, and builds a structured graphics-settings matrix across recording sessions.
+TrSS Game Library is a Windows game launcher and local, opt-in research recorder for TrSS. It discovers installed games, shows one card per executable with the executable's icon, launches games, displays available Windows performance counters, captures game-window samples, and builds a structured graphics-settings matrix across recording sessions. For the source-code map, current implementation status, tests, and planned recorder milestones, see the [personal recorder developer README](RECORDER-README.md).
 
 ## Game discovery
 
