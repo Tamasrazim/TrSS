@@ -8,6 +8,7 @@ import sys
 import pytest
 import torch
 
+from trss.training.evaluate_checkpoint import evaluate_checkpoint
 from trss.training.prepare_pilot import prepare_pilot_dataset
 from trss.training.train import main as train_main
 
@@ -113,9 +114,24 @@ def test_generated_pilot_can_complete_one_cpu_training_epoch(tmp_path, monkeypat
         torch.set_num_threads(1)
         monkeypatch.setattr(sys, "argv", args)
         assert train_main() == 0
+        # Feed the real trainer-produced checkpoint into the evaluator in the same
+        # CPU-thread-limited test; the held-out scenes stay separate from training.
+        evaluation = evaluate_checkpoint(
+            checkpoint_path=training_output / "checkpoint-best.pt",
+            manifest_path=output / "validation.jsonl",
+            output_dir=tmp_path / "trained-evaluation",
+            device_name="cpu",
+            tile_size=16,
+            tile_overlap=2,
+        )
     finally:
         torch.set_num_threads(previous_threads)
 
+    assert evaluation["evaluation_completed"] is True
+    assert evaluation["actual_game_capture"] is False
+    assert evaluation["evaluated_frame_count"] == 2
+    assert evaluation["checkpoint_epoch"] == 1
+    assert (tmp_path / "trained-evaluation" / "index.html").is_file()
     report = json.loads((training_output / "training-report.json").read_text(encoding="utf-8"))
     assert len(report["history"]) == 1
     epoch = report["history"][0]
