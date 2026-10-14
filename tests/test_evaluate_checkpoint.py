@@ -9,7 +9,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from trss.training.evaluate_checkpoint import evaluate_checkpoint
+from trss.training.evaluate_checkpoint import _tile_starts, evaluate_checkpoint
 from trss.training.model import MODEL_FORMAT, TrSSTemporalSR
 from trss.training.prepare_pilot import prepare_pilot_dataset
 
@@ -126,3 +126,21 @@ def test_evaluator_rejects_invalid_tiling_before_creating_output(tmp_path):
             tile_overlap=8,
         )
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("length", "tile_size", "overlap"),
+    [(17, 16, 0), (33, 16, 0), (35, 16, 2), (300, 128, 16)],
+)
+def test_tile_starts_cover_every_pixel_without_one_pixel_tiles(length, tile_size, overlap):
+    starts = _tile_starts(length, tile_size, overlap)
+    intervals = [
+        (start, min(start + tile_size, length))
+        for start in starts
+    ]
+
+    assert starts[0] == 0
+    assert min(end - start for start, end in intervals) >= 2
+    for previous, following in zip(intervals, intervals[1:]):
+        assert following[0] <= previous[1]
+    assert intervals[-1][1] == length
