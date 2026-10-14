@@ -51,6 +51,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           Copy-Item ".\build\directx12\Release\trss_desktop_capture.exe" (Join-Path $package "trss_desktop_capture.exe")
           Copy-Item "docs\DESKTOP-CAPTURE.md" (Join-Path $package "README-DESKTOP-CAPTURE.md")
+          Copy-Item "scripts\Record-TrSSSession.ps1" (Join-Path $package "Record-TrSSSession.ps1")
           Compress-Archive -Path (Join-Path $package "*") -DestinationPath (Join-Path $env:GITHUB_WORKSPACE "trss-capture-win-x64.zip") -Force
 
       - name: Publish standalone capture utility as a downloadable workflow artifact
@@ -60,3 +61,17 @@ jobs:
           path: trss-capture-win-x64.zip
           if-no-files-found: error
           retention-days: 14
+
+      - name: Check the capture helper PowerShell syntax
+        shell: pwsh
+        run: |
+          $parseErrors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "scripts/Record-TrSSSession.ps1", [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw "Capture helper has PowerShell syntax errors."
+          }
+

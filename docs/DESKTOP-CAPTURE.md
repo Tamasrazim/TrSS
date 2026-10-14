@@ -79,3 +79,18 @@ The importer validates each manifest path, creates a low-resolution input from e
 This is a real-game-image experiment, but the low-resolution input is synthetically downsampled from the captured target. The capture has no game depth buffer, motion vectors, original low-resolution render target, or temporal reprojection data; this does not establish a working live-game neural renderer or Arc B580 performance.
 
 Keep game captures and extracted images local unless you have permission to redistribute them. For reviewing results, share the small experiment/evaluation JSON reports and a comparison screenshot; a manifest by itself does not contain visual training data.
+
+
+## One-command capture helper
+
+The Windows artifact bundle includes Record-TrSSSession.ps1. It lists monitors, creates a unique output folder, gives you a countdown to switch back to the game, then writes the PNG frames and JSON metadata.
+
+Open PowerShell in the extracted package directory and run:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File .\Record-TrSSSession.ps1 -Game "Euro Truck Simulator 2" -Adapter 0 -Monitor 0 -Seconds 600 -SamplesPerSecond 2
+~~~
+
+Check the monitor indexes printed by the script before recording. The countdown gives you time to switch back to the game so the gameplay picture, not the terminal, is in front when sampling begins. Run it a second time while driving through a different location to create a separate capture session.
+
+The sampler records the selected monitor's visible pixels, so overlays, menus, desktop focus and display scaling may appear in the saved images. It does not know whether a game is focused. Review a few PNGs before training.
