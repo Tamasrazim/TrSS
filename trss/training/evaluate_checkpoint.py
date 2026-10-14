@@ -377,6 +377,7 @@ def evaluate_checkpoint(
     if output.exists() and not output.is_dir():
         raise NotADirectoryError(f"Output path must be a directory: {output}")
 
+    output.parent.mkdir(parents=True, exist_ok=True)
     resolved_manifest = manifest_file
     rows = load_manifest(resolved_manifest)
     metadata = _read_source_metadata(resolved_manifest)
@@ -420,12 +421,14 @@ def evaluate_checkpoint(
                 overlap=tile_overlap,
             )
 
+            # Baseline interpolation stays on CPU so a full-frame baseline does not
+            # compete with tiled activations for scarce accelerator memory.
             bicubic = F.interpolate(
-                sample["low_res"].unsqueeze(0).to(device).float(),
+                sample["low_res"].unsqueeze(0).float(),
                 scale_factor=2,
                 mode="bicubic",
                 align_corners=False,
-            ).clamp(0.0, 1.0)[0].cpu()
+            ).clamp(0.0, 1.0)[0]
 
             _synchronize(device)
             _add_errors(global_acc, prediction, bicubic, target)
@@ -477,12 +480,13 @@ def evaluate_checkpoint(
             ))
             for scene_id, accumulator in sorted(scene_accumulators.items())
         }
-        synthetic = (
-            "synthetic_controlled_3d_scene" in used_source_types
-            or (
-                all(row.get("source_type") == "synthetic_controlled_3d_scene" for row in metadata.values())
-                and bool(metadata)
-            )
+        selected_source_types = [
+            metadata.get(int(rows[index].get("line", 0)), {}).get("source_type")
+            for index in selected_indices
+        ]
+        synthetic = bool(selected_source_types) and all(
+            source_type == "synthetic_controlled_3d_scene"
+            for source_type in selected_source_types
         )
         report: dict[str, Any] = {
             "format": "trss-checkpoint-evaluation-v1",
