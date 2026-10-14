@@ -67,6 +67,19 @@ python -m trss.training.train --train-manifest data/trss-pilot/train.jsonl --val
 
 This produces `training-report.json`, `checkpoint-last.pt`, and `checkpoint-best.pt`. Once the smoke test works, actual model development still requires a legally usable dataset captured from a suitable renderer and subsequent validation on the intended hardware.
 
+### Run the complete synthetic pilot in one command
+
+For a single reproducible smoke experiment, TrSS can run all currently implemented Python-side stages end to end: generate paired synthetic scenes, split whole scenes, audit the dataset, train the first-party model, evaluate the saved checkpoint against bicubic interpolation, export the same checkpoint and RGB compositor to ONNX, then run one held-out frame through OpenVINO. It saves the reports, both visual galleries, the training log, ONNX model and sidecar, and an output PNG in one directory.
+
+```powershell
+python -m pip install -e ".[test,export,gpu]"
+python -m trss.training.pilot_experiment --output-dir logs/trss-full-pilot --scenes 4 --frames-per-scene 3 --epochs 2 --train-device cpu --evaluation-device cpu --inference-device CPU
+```
+
+The installed command is `trss-pilot-experiment`. To use Intel Arc for the OpenVINO stage, change `--inference-device ARC`; the project will require OpenVINO to identify one unique Intel Arc adapter and will fail rather than silently falling back to CPU. Training can separately be set to `--train-device xpu` when the installed PyTorch XPU runtime is available.
+
+Open `logs/trss-full-pilot/experiment-report.json` for a machine-readable summary. `evaluation/index.html` compares the trained checkpoint to bicubic interpolation on all held-out frames; `dataset/review-gallery/index.html` shows the source pairs. This pipeline deliberately uses synthetic box scenes, so it verifies plumbing and records measurements—not photorealism, game compatibility, or in-game FPS. The result is a completed pilot experiment, not a completed neural renderer.
+
 ### Evaluate a trained checkpoint against bicubic interpolation
 
 After training, run a held-out validation manifest through the saved checkpoint. TrSS writes native-size prediction PNGs, a four-panel comparison for every evaluated frame, aggregate and per-scene MAE/RMSE/PSNR, the checkpoint SHA-256, and a local HTML gallery. By default it evaluates the entire manifest using overlapping tiles to limit accelerator memory:
