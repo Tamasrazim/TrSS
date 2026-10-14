@@ -27,6 +27,7 @@ from .rendering.adapter import (
     preview_from_outputs,
 )
 from .rendering.hnet import HNetContractError, HNetControls, HNetFrameEngine
+from .rendering.sequence import run_sequence
 
 
 def _range_argument(value: str) -> tuple[float, float]:
@@ -133,6 +134,17 @@ def _build_parser() -> argparse.ArgumentParser:
     render_frame.add_argument("--preview-output", type=Path, help="optional PNG/JPEG preview; requires an explicit RGB output declaration in the adapter spec")
     render_frame.add_argument("--history-output", type=Path, help="optional .npy normalized RGB HWC output to feed as the next frame's history")
     render_frame.add_argument("--report", type=Path, help="optional JSON report of preprocessing and inference timings")
+
+    render_sequence = commands.add_parser(
+        "render-sequence",
+        help="process recorded frames in order with explicit per-frame inputs and temporal history",
+    )
+    render_sequence.add_argument("--model", required=True, type=Path, help="local OpenVINO/ONNX model")
+    render_sequence.add_argument("--spec", required=True, type=Path, help="explicit JSON model-input adapter spec")
+    render_sequence.add_argument("--manifest", required=True, type=Path, help="JSONL frame manifest; paths are relative to this file")
+    render_sequence.add_argument("--output-dir", required=True, type=Path, help="directory for sequential RGB PNG outputs")
+    render_sequence.add_argument("--device", default="ARC", help="ARC (default) or exact GPU.X ID")
+    render_sequence.add_argument("--report", type=Path, help="optional JSON sequence/timing report")
 
     hnet_frame = commands.add_parser(
         "hnet-frame",
@@ -877,6 +889,23 @@ def _load_hwc_history(path: Path) -> np.ndarray:
     return history
 
 
+def _run_render_sequence(args: argparse.Namespace) -> int:
+    """Run a validated offline frame manifest and maintain safe temporal history."""
+    report = run_sequence(
+        model_path=args.model,
+        spec_path=args.spec,
+        manifest_path=args.manifest,
+        output_dir=args.output_dir,
+        device=args.device,
+        report_path=args.report,
+        engine_factory=TensorInferenceEngine,
+    )
+    print(json.dumps(report, indent=2))
+    if args.report:
+        _write_json(args.report, report)
+    return 0
+
+
 def _run_hnet_frame(args: argparse.Namespace) -> int:
     """Run the specific 16-input-channel/4-output-channel frame adapter."""
     if args.warmup < 0:
@@ -1237,6 +1266,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_tensor_inference(args)
         if args.command == "render-frame":
             return _run_render_frame(args)
+        if args.command == "render-sequence":
+            return _run_render_sequence(args)
         if args.command == "hnet-frame":
             return _run_hnet_frame(args)
         if args.command == "xmx-frame":
