@@ -1,0 +1,2 @@
+{"frame_id":0,"timestamp":0.0167,"scene_id":"demo-scene","camera_cut":true,"color":"frames/frame-0000.png","depth":"buffers/depth-0000.npy","motion":"buffers/motion-0000.npy","initial_history":"buffers/history-seed.npy","color_space":"srgb","depth_encoding":"linear","motion_units":"pixel-per-frame"}
+{"frame_id":1,"timestamp":0.0334,"scene_id":"demo-scene","color":"frames/frame-0001.png","depth":"buffers/depth-0001.npy","motion":"buffers/motion-0001.npy","color_space":"srgb","depth_encoding":"linear","motion_units":"pixel-per-frame"}
