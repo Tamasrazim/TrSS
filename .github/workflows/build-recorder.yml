@@ -15,6 +15,8 @@ on:
       - ".github/workflows/build-recorder.yml"
       - "docs/RECORDER.md"
       - "docs/RECORDER-RELEASE.md"
+      - "scripts/fetch_presentmon.ps1"
+      - "vendor/presentmon/NOTICE.txt"
     tags:
       - "game-library-v*"
 
@@ -44,10 +46,21 @@ jobs:
       - name: Run project tests
         run: python -m pytest -q
 
-      - name: Build portable recorder
+      - name: Download and verify the pinned frame telemetry engine
+        shell: pwsh
+        run: .\scripts\fetch_presentmon.ps1
+
+      - name: Build portable game library
         run: >
           python -m PyInstaller --noconfirm --clean --onefile --windowed
-          --name TrSS-Game-Library --collect-all PIL run_recorder.py
+          --name TrSS-Game-Library --collect-all PIL
+          --add-binary "vendor\presentmon\PresentMon-2.6.0-x64.exe;presentmon"
+          --add-data "vendor\presentmon\NOTICE.txt;presentmon"
+          run_recorder.py
+
+      - name: Include third-party telemetry notice
+        shell: pwsh
+        run: Copy-Item vendor\presentmon\NOTICE.txt dist\PRESENTMON-NOTICE.txt
 
       - name: Calculate SHA-256
         shell: pwsh
@@ -63,6 +76,7 @@ jobs:
           path: |
             dist/TrSS-Game-Library.exe
             dist/TrSS-Game-Library.exe.sha256
+            dist/PRESENTMON-NOTICE.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -73,4 +87,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release create $tag dist\TrSS-Game-Library.exe dist\TrSS-Game-Library.exe.sha256 --title "TrSS Game Library $tag" --notes-file docs\RECORDER-RELEASE.md
+          gh release create $tag dist\TrSS-Game-Library.exe dist\TrSS-Game-Library.exe.sha256 dist\PRESENTMON-NOTICE.txt --title "TrSS Game Library $tag" --notes-file docs\RECORDER-RELEASE.md
