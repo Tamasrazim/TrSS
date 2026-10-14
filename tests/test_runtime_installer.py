@@ -84,6 +84,30 @@ def test_uninstall_removes_only_verified_dll_and_preserves_user_settings(install
     assert result["runtime_removed"].endswith("dxgi.dll")
 
 
+def test_failed_manifest_write_rolls_back_the_partial_install(
+    install_tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_dir, exe, dll = install_tree
+    original_write_text = Path.write_text
+    manifest_path = game_dir / "TrSS" / installer.MANIFEST_NAME
+
+    def fail_only_on_manifest(path: Path, *args, **kwargs):
+        if path == manifest_path:
+            raise OSError("simulated disk write failure")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_only_on_manifest)
+
+    with pytest.raises(OSError, match="simulated disk write failure"):
+        installer.install_runtime(exe, dll)
+
+    assert not (game_dir / "dxgi.dll").exists()
+    assert not (game_dir / "dxgi.dll.trss-installing").exists()
+    assert not (game_dir / "TrSS.ini").exists()
+    assert not manifest_path.exists()
+    assert not list((game_dir / "TrSS" / "Presets").glob("*.ini"))
+
+
 def test_uninstall_refuses_if_installed_dll_was_replaced(install_tree) -> None:
     game_dir, exe, dll = install_tree
     installer.install_runtime(exe, dll)
