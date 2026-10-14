@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 gpu = ["openvino>=2025.0"]
 training = ["torch>=2.5"]
+video = ["opencv-python-headless>=4.10"]
 export = ["torch>=2.5", "onnx>=1.16", "onnxruntime>=1.20"]
 test = ["pytest>=8.0"]
 
@@ -30,6 +31,8 @@ trss-evaluate-checkpoint = "trss.training.evaluate_checkpoint:main"
 trss-export-onnx = "trss.training.export_onnx:main"
 trss-run-onnx-frame = "trss.training.infer_onnx:main"
 trss-pilot-experiment = "trss.training.pilot_experiment:main"
+trss-import-game-video = "trss.training.import_game_video:main"
+trss-train-spatial = "trss.training.train_spatial:main"
 
 [tool.setuptools.packages.find]
 include = ["trss*"]
