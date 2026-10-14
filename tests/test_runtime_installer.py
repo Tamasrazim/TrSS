@@ -19,7 +19,7 @@ def _write_pe(
     data = bytearray(0x80 + 26 + len(payload))
     data[:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
-    data[0x80:0x84] = b"PE\\0\\0"
+    data[0x80:0x84] = bytes((0x50, 0x45, 0, 0))
     struct.pack_into("<H", data, 0x84, machine)
     struct.pack_into("<H", data, 0x80 + 20, 0xF0)
     struct.pack_into("<H", data, 0x80 + 24, optional_magic)
