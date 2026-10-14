@@ -1,4 +1,4 @@
-name: DirectX 12 backend build and compute test
+name: DirectX 9, 11, and 12 backend checks
 
 on:
   push:
@@ -15,11 +15,17 @@ jobs:
       - name: Check out TrSS
         uses: actions/checkout@v4
 
-      - name: Configure the native Direct3D 12 target
+      - name: Configure the native DirectX 9/11/12 probes
         run: cmake -S native/directx12 -B build/directx12 -A x64
 
-      - name: Compile the native backend
+      - name: Compile all native DirectX API probes
         run: cmake --build build/directx12 --config Release --parallel
+
+      - name: Run the D3D9 adapter and runtime survey
+        run: .\build\directx12\Release\trss_d3d9_probe.exe --list-devices
+
+      - name: Run the D3D11 compute roundtrip on WARP
+        run: .\build\directx12\Release\trss_d3d11_probe.exe --warp-self-test
 
       - name: Run the D3D12 compute roundtrip on WARP
         run: .\build\directx12\Release\trss_dx12_probe.exe --warp-self-test

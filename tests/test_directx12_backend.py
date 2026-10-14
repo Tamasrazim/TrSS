@@ -1,17 +1,44 @@
-"""Tests for the optional Direct3D 12 CLI bridge; no Windows GPU is required."""
+"""Tests for the optional DirectX API CLI bridge; no Windows GPU is required."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
 import trss.cli as cli
 from trss.backends.directx12_backend import (
-    DirectX12BackendUnavailable,
     build_probe_command,
     locate_probe_executable,
 )
+
+
+@pytest.mark.parametrize(
+    ("api", "filename"),
+    [
+        ("d3d9", "trss_d3d9_probe.exe"),
+        ("d3d11", "trss_d3d11_probe.exe"),
+        ("d3d12", "trss_dx12_probe.exe"),
+    ],
+)
+def test_api_probe_uses_the_matching_native_executable_name(tmp_path, api, filename):
+    probe_dir = tmp_path / "build" / "Release"
+    probe_dir.mkdir(parents=True)
+    expected = probe_dir / filename
+    expected.write_bytes(b"test executable")
+
+    from trss.backends import directx12_backend as backend
+    monkeypatch = pytest.MonkeyPatch()
+    fake_root = tmp_path / "repo"
+    fake_module = fake_root / "trss" / "backends" / "directx12_backend.py"
+    fake_module.parent.mkdir(parents=True)
+    fake_module.write_text("# test path", encoding="utf-8")
+    monkeypatch.setattr(backend, "__file__", str(fake_module))
+    try:
+        target = fake_root / "native" / "directx12" / "build" / "Release" / filename
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"test executable")
+        assert locate_probe_executable(api=api) == target.resolve()
+    finally:
+        monkeypatch.undo()
 
 
 @pytest.mark.parametrize(
@@ -23,23 +50,23 @@ from trss.backends.directx12_backend import (
     ],
 )
 def test_probe_command_selects_one_operation(tmp_path, operation, expected):
-    executable = tmp_path / "trss_dx12_probe.exe"
+    executable = tmp_path / "probe.exe"
     command = build_probe_command(executable, operation=operation)
     assert command == [str(executable), *expected]
 
 
-def test_hardware_device_substring_is_forwarded_without_being_rewritten(tmp_path):
-    executable = tmp_path / "trss_dx12_probe.exe"
+@pytest.mark.parametrize("api, filename", [
+    ("d3d9", "trss_d3d9_probe.exe"),
+    ("d3d11", "trss_d3d11_probe.exe"),
+    ("d3d12", "trss_dx12_probe.exe"),
+])
+def test_probe_command_api_is_validated_and_remains_argv_safe(tmp_path, api, filename):
+    executable = tmp_path / filename
     command = build_probe_command(
-        executable,
-        operation="self-test",
-        device_substring="Intel Arc B580",
+        executable, operation="self-test", device_substring='Arc "B580"', api=api
     )
     assert command == [
-        str(executable),
-        "--self-test",
-        "--device-substring",
-        "Intel Arc B580",
+        str(executable), "--self-test", "--device-substring", 'Arc "B580"'
     ]
 
 
@@ -47,18 +74,36 @@ def test_hardware_device_substring_is_forwarded_without_being_rewritten(tmp_path
 def test_device_substring_is_rejected_for_non_hardware_modes(tmp_path, operation):
     with pytest.raises(ValueError, match="only valid for the hardware self-test"):
         build_probe_command(
-            tmp_path / "trss_dx12_probe.exe",
+            tmp_path / "probe.exe",
             operation=operation,
             device_substring="B580",
+        )
+
+
+def test_d3d9_rejects_warp_test_because_it_has_no_compute_shader_path(tmp_path):
+    with pytest.raises(ValueError, match="D3D9 has no WARP compute test"):
+        build_probe_command(
+            tmp_path / "trss_d3d9_probe.exe",
+            operation="warp-self-test",
+            api="d3d9",
         )
 
 
 def test_blank_device_substring_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="must not be blank"):
         build_probe_command(
-            tmp_path / "trss_dx12_probe.exe",
+            tmp_path / "probe.exe",
             operation="self-test",
             device_substring="   ",
+        )
+
+
+def test_unsupported_api_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported DirectX API"):
+        build_probe_command(
+            tmp_path / "probe.exe",
+            operation="self-test",
+            api="opengl",  # type: ignore[arg-type]
         )
 
 
@@ -68,54 +113,32 @@ def test_explicit_missing_executable_fails_instead_of_searching_other_paths(tmp_
         locate_probe_executable(missing)
 
 
-def test_located_executable_must_be_a_file(tmp_path):
-    fake = tmp_path / "trss_dx12_probe.exe"
-    fake.write_bytes(b"local test fixture")
-    assert locate_probe_executable(fake) == fake.resolve()
-
-
-@pytest.mark.parametrize(
-    ("arguments", "expected_operation"),
-    [
-        (["--list-devices"], "list-devices"),
-        (["--self-test"], "self-test"),
-        (["--warp-self-test"], "warp-self-test"),
-        ([], "self-test"),
-    ],
-)
-def test_cli_dx12_probe_selects_requested_mode(monkeypatch, arguments, expected_operation):
-    captured = {}
-
-    def fake_runner(**kwargs):
-        captured.update(kwargs)
-        return 0
-
-    monkeypatch.setattr(cli, "run_dx12_probe", fake_runner)
-    parsed = cli._build_parser().parse_args(["dx12-probe", *arguments])
-
-    assert cli._run_dx12_probe(parsed) == 0
-    assert captured["operation"] == expected_operation
-    assert captured["device_substring"] is None
-    assert captured["executable"] is None
-
-
-def test_cli_dx12_probe_never_silently_uses_warp_for_hardware_mode(monkeypatch):
+def test_cli_graphics_probe_selects_api_and_never_silently_uses_warp(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        cli, "run_dx12_probe", lambda **kwargs: captured.update(kwargs) or 0
+        cli,
+        "run_dx12_probe",
+        lambda **kwargs: captured.update(kwargs) or 0,
     )
     parsed = cli._build_parser().parse_args([
-        "dx12-probe", "--device-substring", "Intel Arc B580"
+        "graphics-probe",
+        "--api", "d3d11",
+        "--self-test",
+        "--device-substring", "Intel Arc B580",
     ])
 
     assert cli._run_dx12_probe(parsed) == 0
-    assert captured["operation"] == "self-test"
-    assert captured["device_substring"] == "Intel Arc B580"
+    assert captured == {
+        "operation": "self-test",
+        "executable": None,
+        "device_substring": "Intel Arc B580",
+        "api": "d3d11",
+    }
 
 
-def test_cli_dx12_probe_rejects_blank_device_substring():
+def test_cli_rejects_d3d9_warp_self_test():
     parsed = cli._build_parser().parse_args([
-        "dx12-probe", "--device-substring", "   "
+        "graphics-probe", "--api", "d3d9", "--warp-self-test"
     ])
-    with pytest.raises(ValueError, match="cannot be blank"):
+    with pytest.raises(ValueError, match="Direct3D 9 has no WARP compute test"):
         cli._run_dx12_probe(parsed)

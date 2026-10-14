@@ -1,6 +1,6 @@
 # TrSS engine architecture
 
-TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. A separate first-party Windows Direct3D 12 compute bring-up target now lives under `native/directx12/`; it validates a basic HLSL dispatch and readback, not the neural model. Neither native path is yet validated for full TrSS neural inference on the physical Arc B580, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
+TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. Separate first-party Windows probes for legacy Direct3D 9, Direct3D 11, and Direct3D 12 now live under `native/directx12/`. They validate D3D9 render-target readback, D3D11 compute dispatch, and D3D12 compute/fence/readback, respectively; they do not implement game-capture hooks. Neither the native DirectX probes nor the Vulkan/XMX route has been validated for full TrSS neural inference on the physical Arc B580. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
@@ -9,10 +9,10 @@ TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 
 - `trss/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
 - `trss/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
 - `trss/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
-- `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, experimental `xmx-frame`, and `dx12-probe`.
+- `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, experimental `xmx-frame`, and `graphics-probe` (with `dx12-probe` retained as an alias).
 - `trss/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
-- `trss/backends/directx12_backend.py`: Windows-only launcher for the separate native D3D12 adapter/compute self-test. It never silently falls back to WARP for the hardware test.
-- `native/directx12/`: first-party C++17 Windows SDK target that enumerates DXGI adapters, queries baseline capabilities, dispatches a deterministic HLSL compute kernel, synchronizes with a fence, and verifies the readback. CI runs the same self-test on the WARP software adapter; this is API-path validation, not physical GPU validation.
+- `trss/backends/directx12_backend.py`: Windows-only launcher that selects the native D3D9, D3D11, or D3D12 probe; hardware mode never silently falls back to software.
+- `native/directx12/`: first-party C++17 Windows SDK targets: D3D9 device/render-target readback, D3D11 compute dispatch/readback, and D3D12 compute dispatch/fence/readback. CI builds all three, runs the D3D9 adapter survey, and runs D3D11/D3D12 smoke tests on WARP. This is API-path validation, not game integration or physical GPU validation.
 - `trss/training/`: first-party 10-channel, scale-2 temporal reconstruction architecture, explicit paired-frame manifest/dataset reader, and PyTorch training loop. These checkpoints are a separate format and cannot yet run through the fixed-graph `xmx-frame` backend.
 - `vendor/dlss-nr-intel/`: pinned Apache-2.0 Vulkan/XMX runtime, shaders, and frame-runner source. The native C file has a fail-closed device-selection change and is compile-checked in CI.
 - `tests/`: CPU-only tests for conversions, model contracts, named multi-input execution, adapter selection, history invalidation, and the XMX bridge with a fake native frame runner. CI builds the native runtime, host helpers, and runtime SPIR-V shaders, but does not execute the native backend on a GPU.
@@ -25,24 +25,32 @@ The separate vendored Vulkan runtime applies the same fail-closed principle. Wit
 
 The Windows/Linux driver and OpenVINO GPU plugin are system requirements. A successful CPU-only CI run is not hardware validation.
 
-## Native Direct3D 12 compute bring-up
+## Native Direct3D 9/11/12 API probes
 
-The first-party target is intentionally separate from `vendor/dlss-nr-intel/`. It links the Windows SDK's D3D12, DXGI, and D3D compiler libraries; there is no Vulkan dependency in this target.
-
-Build from the repository root in a Visual Studio developer environment:
+The first-party probes are separate from the vendored Vulkan/XMX source. Build them in a Visual Studio developer environment:
 
 ```powershell
 cmake -S native/directx12 -B native/directx12/build -A x64
 cmake --build native/directx12/build --config Release --parallel
-trss dx12-probe --list-devices
-trss dx12-probe --self-test --device-substring "B580"
 ```
 
-The hardware test selects a unique adapter whose name contains `Arc` by default. When the device name differs, inspect the JSON device list and pass a more specific `--device-substring`. Ambiguous selection and missing D3D12 feature-level 12_0 support fail closed.
+Select the graphics API explicitly:
 
-On Windows CI or a machine without an Arc GPU, run `trss dx12-probe --warp-self-test`. That uses Microsoft's WARP software adapter and checks the real D3D12 compute pipeline, resource bindings, queue submission, fence completion, and buffer readback. It does not test Intel hardware or performance.
+```powershell
+trss graphics-probe --api d3d9 --list-devices
+trss graphics-probe --api d3d11 --list-devices
+trss graphics-probe --api d3d12 --list-devices
+```
 
-**Current boundary:** this is a compute substrate test, not the first-party neural model backend yet. The PyTorch checkpoint uses convolutions, GELU activations, context downsampling, pixel shuffle, and a temporal head. Those operations still need a matching D3D12/HLSL implementation, a weight-loading format, tensor/resource scheduling, and image-quality comparisons. The self-test must not be described as neural inference or live-game support.
+The D3D9 probe uses the legacy `IDirect3D9` and `IDirect3DDevice9` interfaces, creates a windowed device, clears its back buffer, and checks a readback pixel. D3D9 has no compute shaders, so this only establishes a graphics-device path.
+
+The D3D11 probe selects a feature-level 11_0-or-higher adapter and runs an HLSL compute dispatch with a raw UAV buffer and staging-buffer readback. Its `--warp-self-test` lets Windows CI exercise this path on WARP.
+
+The D3D12 probe tests its own HLSL compute pipeline, resource-state transitions, queue submission, fence completion, and readback. Its WARP option is also for smoke testing, not performance measurement.
+
+For real game processing, each API needs its own Present/swap-chain integration, safe back-buffer acquisition, resource sharing or copying into the inference backend, correct frame pacing, and handling for resizing, device loss, alt-tab, and multiple swap chains. Some games use wrappers or compatibility layers, so passing a probe cannot establish compatibility with every game.
+
+**Current boundary:** none of the probes loads a trained TrSS checkpoint, runs the PyTorch network in native DirectX shaders, captures a live game's frame, or validates the physical Arc B580. The model's convolutions, GELU activations, context branch, pixel shuffle, weight mapping, and temporal output still need a true native inference implementation.
 
 ## Single-image engine versus tensor engine
 

@@ -180,21 +180,26 @@ def _build_parser() -> argparse.ArgumentParser:
     xmx_frame.add_argument("--report", type=Path, help="optional JSON timing and native-device report")
 
     dx12_probe = commands.add_parser(
-        "dx12-probe",
-        help="enumerate Direct3D 12 adapters or run the experimental native compute self-test",
+        "graphics-probe",
+        aliases=["dx12-probe"],
+        help="inspect DirectX 9/11/12 adapters or run an API-specific native smoke test",
+    )
+    dx12_probe.add_argument(
+        "--api", choices=("d3d9", "d3d11", "d3d12"), default="d3d12",
+        help="graphics API to test (default: d3d12)",
     )
     dx12_modes = dx12_probe.add_mutually_exclusive_group()
     dx12_modes.add_argument(
         "--list-devices", action="store_true",
-        help="list DXGI adapters and whether they create a D3D12 feature-level 12_0 device",
+        help="list the devices reported by the selected DirectX API",
     )
     dx12_modes.add_argument(
         "--self-test", action="store_true",
-        help="run an HLSL compute dispatch/readback on the selected hardware adapter",
+        help="run the selected API's hardware smoke test (D3D9 render path or D3D11/12 compute)",
     )
     dx12_modes.add_argument(
         "--warp-self-test", action="store_true",
-        help="run the same compute check on the WARP software adapter (for CI only)",
+        help="run the API's WARP smoke test where supported (CI only; not GPU performance)",
     )
     dx12_probe.add_argument(
         "--device-substring",
@@ -202,7 +207,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     dx12_probe.add_argument(
         "--executable", type=Path,
-        help="optional path to a locally built trss_dx12_probe.exe",
+        help="optional path to the native executable for the selected API",
     )
     return parser
 
@@ -1194,9 +1199,12 @@ def _run_xmx_frame(args: argparse.Namespace) -> int:
 
 
 def _run_dx12_probe(args: argparse.Namespace) -> int:
-    """Launch the standalone, first-party Direct3D 12 compute bring-up target."""
+    """Launch the selected first-party DirectX API probe."""
     if args.device_substring is not None and not args.device_substring.strip():
         raise ValueError("--device-substring cannot be blank.")
+
+    if args.api == "d3d9" and args.warp_self_test:
+        raise ValueError("Direct3D 9 has no WARP compute test; use an actual D3D9-capable adapter.")
 
     if args.list_devices:
         operation = "list-devices"
@@ -1211,6 +1219,7 @@ def _run_dx12_probe(args: argparse.Namespace) -> int:
         operation=operation,
         executable=args.executable,
         device_substring=args.device_substring,
+        api=args.api,
     )
 
 
@@ -1232,7 +1241,7 @@ def main(argv: list[str] | None = None) -> int:
             return _run_hnet_frame(args)
         if args.command == "xmx-frame":
             return _run_xmx_frame(args)
-        if args.command == "dx12-probe":
+        if args.command in ("graphics-probe", "dx12-probe"):
             return _run_dx12_probe(args)
         parser.error("unknown command")
     except (BackendUnavailable, AdapterSpecError, HNetContractError, FileNotFoundError, ValueError, RuntimeError, OSError) as exc:

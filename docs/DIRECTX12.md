@@ -1,16 +1,18 @@
-# Direct3D 12 backend bring-up
+# DirectX 9, 11, and 12 backend bring-up
 
-TrSS now has a first-party Windows-native Direct3D 12 compute bring-up target. This is a separate backend path, not a translation of the vendored Vulkan project.
+TrSS has separate first-party Windows-native API probes for legacy Direct3D 9, Direct3D 11, and Direct3D 12. Each API has a different graphics/runtime surface; there is no single device call that makes all existing games compatible.
 
-## What is implemented
+## Current implementation
 
-- Enumerates DXGI adapters and reports device/vendor IDs, software-adapter status, and whether a D3D12 feature-level 12_0 device can be created.
-- Selects one hardware adapter whose name contains `Arc`, unless a more specific `--device-substring` is supplied. It refuses ambiguous device matches and does not substitute WARP during a hardware test.
-- Queries the available shader model and wave-operations capability.
-- Compiles a small HLSL compute shader, creates a D3D12 compute root signature and pipeline state, writes to a GPU unordered-access buffer, submits compute work, waits on a fence, reads the output back, and verifies all 1,024 results.
-- Runs on Microsoft's WARP software adapter for Windows CI, allowing the Direct3D 12 command/resource/fence path to be exercised without assuming the hosted runner has an Intel GPU.
+| API | Native test | What success establishes |
+|---|---|---|
+| Direct3D 9 | Legacy `IDirect3D9` device creation, back-buffer clear, and system-memory readback | The driver can create this basic D3D9 graphics path and return the test pixel |
+| Direct3D 11 | HLSL compute shader, UAV writes, staging-buffer readback | The selected device or WARP can dispatch a simple D3D11 compute shader |
+| Direct3D 12 | HLSL compute shader, UAV writes, state transition, queue/fence synchronization, readback | The selected device or WARP can dispatch a simple D3D12 compute shader |
 
-## Build
+These are API smoke tests. They do **not** establish neural-network inference, game capture, interop between different graphics APIs, compatibility with every game, or Arc B580 performance.
+
+## Build all three probes
 
 From the repository root in a Visual Studio developer environment with CMake and the Windows SDK:
 
@@ -19,40 +21,51 @@ cmake -S native/directx12 -B native/directx12/build -A x64
 cmake --build native/directx12/build --config Release --parallel
 ```
 
-The executable is written to `native/directx12/build/Release/trss_dx12_probe.exe`. No prebuilt binary is downloaded or committed.
+The three executables are written to:
 
-## Use
+- `native/directx12/build/Release/trss_d3d9_probe.exe`
+- `native/directx12/build/Release/trss_d3d11_probe.exe`
+- `native/directx12/build/Release/trss_dx12_probe.exe`
 
-List adapters and basic D3D12 capability:
+No prebuilt binary is downloaded or committed.
 
-```powershell
-trss dx12-probe --list-devices
-```
-
-Run the hardware compute roundtrip on the unique Arc adapter:
+## Inspect API-specific devices
 
 ```powershell
-trss dx12-probe --self-test
+trss graphics-probe --api d3d9 --list-devices
+trss graphics-probe --api d3d11 --list-devices
+trss graphics-probe --api d3d12 --list-devices
 ```
 
-If adapter names are ambiguous or the driver uses a different name, inspect the list and provide a unique substring:
+If more than one adapter matches a hardware test, use a unique name fragment with `--device-substring`.
+
+## Run hardware tests
 
 ```powershell
-trss dx12-probe --self-test --device-substring "B580"
+trss graphics-probe --api d3d9 --self-test --device-substring B580
+trss graphics-probe --api d3d11 --self-test --device-substring B580
+trss graphics-probe --api d3d12 --self-test --device-substring B580
 ```
 
-Run the software validation path (CI only, not a performance test):
+The D3D9 readback test currently requires an X8R8G8B8 or A8R8G8B8 back buffer and fails rather than guessing at unknown pixel formats.
+
+For D3D11 and D3D12, software smoke tests use WARP:
 
 ```powershell
-trss dx12-probe --warp-self-test
+trss graphics-probe --api d3d11 --warp-self-test
+trss graphics-probe --api d3d12 --warp-self-test
 ```
 
-When executing the native program directly, its equivalent options are `--list-devices`, `--self-test`, and `--warp-self-test`. An optional `--executable` argument is available on the Python command if the build was placed outside the default path; `TrSS_DX12_PROBE` can set that path as an environment variable.
+WARP validates the API command/resource path but does not measure Intel GPU performance. D3D9 has no corresponding WARP compute test and must use a physical D3D9-capable adapter. The old `dx12-probe` CLI name remains an alias for `graphics-probe`, with D3D12 still the default API.
 
-## What this does not prove
+## What is still required for game support
 
-The compute self-test does not load a TrSS checkpoint, execute neural inference, render an image, capture a live game's swapchain, or establish speed/temperature/VRAM behavior on the Arc B580. The native target is a D3D12 execution foundation only.
+1. An API-specific method to acquire each supported game's back buffer or swap chain.
+2. A safe path to pass color and required auxiliary buffers to the inference engine without expensive or unsafe CPU readbacks.
+3. Resource sharing or conversion, synchronization, timestamps, frame pacing, and reset handling for resize, device loss, alt-tab, and multiple-swap-chain applications.
+4. Native execution for the actual TrSS model, including weight loading, tensor scheduling, precision, and output composition.
+5. Real-game validation on the Arc B580, with image comparisons, latency measurements, and rollback tests.
 
-The existing first-party PyTorch model uses convolution layers, GELU, a context branch, pixel shuffle, and a temporal residual/gate output. A true Direct3D 12 inference backend still needs to implement those operators and their resource/precision contracts, load the matching weights, and produce image comparisons against the same CPU/PyTorch references. Matrix or shader acceleration capability queries are not proof that this network is implemented on that hardware.
+D3D9 has graphics and render-target functionality but no compute-shader API; D3D11 and D3D12 expose their own compute APIs. A D3D12 compute backend cannot automatically consume a D3D9 or D3D11 texture. The frame-resource path needs a correct shared-resource or copy implementation first.
 
-The Direct3D 12 API structures and command path follow Microsoft's public documentation for [root signatures](https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signatures) and [hardware feature levels](https://learn.microsoft.com/en-us/windows/win32/direct3d12/hardware-feature-levels).
+References: Microsoft's documentation for [Direct3D 9 device creation](https://learn.microsoft.com/en-us/windows/win32/direct3d9/creating-a-device), [Direct3D 11 device creation](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-d3d11createdevice), and [Direct3D 12 device creation](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-d3d12createdevice).
