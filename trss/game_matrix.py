@@ -471,8 +471,8 @@ def build_matrix_row(
 
     numeric_metrics = (
         "fps", "frametime_ms", "game_cpu_percent", "system_cpu_percent",
-        "game_gpu_percent", "system_gpu_percent", "game_dedicated_gpu_bytes",
-        "game_ram_bytes", "ram_percent",
+        "game_gpu_3d_percent", "game_dedicated_gpu_bytes", "game_ram_bytes",
+        "ram_used_bytes", "ram_total_bytes", "ram_percent",
     )
     summaries: dict[str, float | None] = {}
     for key in numeric_metrics:
@@ -567,9 +567,10 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
         "matrix_row_exact", "settings_hash_sha256", "settings_coverage_percent",
         "captured_frames", "elapsed_seconds", "performance_samples",
         "average_fps", "average_frametime_ms", "average_game_cpu_percent",
-        "average_system_cpu_percent", "average_game_gpu_percent",
-        "average_system_gpu_percent", "average_game_ram_bytes",
-        "average_game_dedicated_gpu_bytes", *STANDARD_SETTINGS.keys(),
+        "average_system_cpu_percent", "average_game_gpu_3d_percent",
+        "average_game_ram_bytes", "average_game_dedicated_gpu_bytes",
+        "average_ram_used_bytes", "average_ram_total_bytes", "average_ram_percent",
+        *STANDARD_SETTINGS.keys(),
         "additional_game_settings_json", "missing_settings_json",
         "settings_needing_value_decoding_json", "participant_notes",
     ]
@@ -605,8 +606,8 @@ def append_game_matrix_row(matrix_directory: str | Path, row: dict[str, Any]) ->
                 flat[setting] = (item.get("settings") or {}).get(setting)
             for key in (
                 "fps", "frametime_ms", "game_cpu_percent", "system_cpu_percent",
-                "game_gpu_percent", "system_gpu_percent", "game_ram_bytes",
-                "game_dedicated_gpu_bytes",
+                "game_gpu_3d_percent", "game_ram_bytes", "game_dedicated_gpu_bytes",
+                "ram_used_bytes", "ram_total_bytes", "ram_percent",
             ):
                 flat[f"average_{key}"] = metrics.get(f"average_{key}")
             writer.writerow(flat)
