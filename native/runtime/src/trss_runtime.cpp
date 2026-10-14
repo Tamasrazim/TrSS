@@ -190,6 +190,13 @@ std::wstring join_path(const std::wstring& left, const std::wstring& right) {
     return left + L"\\" + right;
 }
 
+void ensure_runtime_paths() {
+    if (!g_runtimeDirectory.empty()) return;
+    g_runtimeDirectory = module_directory();
+    g_configPath = join_path(g_runtimeDirectory, kConfigName);
+    g_presetDirectory = join_path(join_path(g_runtimeDirectory, L"TrSS"), PRESET_FOLDER);
+}
+
 std::wstring config_value(const wchar_t* section, const wchar_t* key, const wchar_t* fallback) {
     wchar_t buffer[256]{};
     GetPrivateProfileStringW(section, key, fallback, buffer,
@@ -262,6 +269,7 @@ void save_settings_file() {
 }
 
 void load_settings_file() {
+    ensure_runtime_paths();
     std::lock_guard<std::mutex> lock(g_settingsMutex);
     if (g_settingsLoaded) return;
     g_settings = defaults();
@@ -506,7 +514,9 @@ void reset_render_resources() {
 bool make_d2d_target(ID3D11Texture2D* backBuffer) {
     ComPtr<IDXGISurface> surface;
     if (FAILED(backBuffer->QueryInterface(IID_PPV_ARGS(&surface)))) return false;
-    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_resources.d2dFactory))) return false;
+    if (FAILED(D2D1CreateFactory(
+            D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
+            reinterpret_cast<void**>(g_resources.d2dFactory.GetAddressOf())))) return false;
     if (FAILED(DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
             reinterpret_cast<IUnknown**>(g_resources.writeFactory.GetAddressOf())))) return false;
@@ -1142,11 +1152,10 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DXGIGetDebugInterface1(
 BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID) {
     using namespace trss_runtime;
     if (reason == DLL_PROCESS_ATTACH) {
+        // Keep DllMain minimal. Path discovery and heap-backed strings happen only
+        // after Windows has finished loading this module, at the first factory call.
         g_module = module;
         DisableThreadLibraryCalls(module);
-        g_runtimeDirectory = module_directory();
-        g_configPath = join_path(g_runtimeDirectory, kConfigName);
-        g_presetDirectory = join_path(g_runtimeDirectory, kPresetFolder);
     } else if (reason == DLL_PROCESS_DETACH) {
         // Do not call Direct3D, window, or loader APIs from DllMain during process
         // detach: Windows may already hold the loader lock and the process is exiting.
