@@ -1,25 +1,28 @@
-"""TrSS Game Library: discover installed games, launch them, and collect opt-in telemetry.
+"""TrSS Game Library: discover games, launch them, and collect opt-in game telemetry.
 
-FPS is intentionally reported as unavailable until a native per-present ETW reader is
-connected. The application does not invent frame-rate values or claim CPU/GPU counters
-are FPS measurements.
+FPS and frametime come from the bundled per-present ETW collector when Windows allows
+access. Missing measurements remain unknown instead of being inferred from monitor rate.
 """
 
 from __future__ import annotations
 
+import csv
 import ctypes
-from collections import Counter
+from collections import Counter, deque
 from ctypes import wintypes
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import queue
 import re
 import shutil
+import statistics
 import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -111,6 +114,8 @@ LOCAL_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Loca
 APP_DATA = LOCAL_ROOT / "TrSS" / "GameLibrary"
 ICON_CACHE = APP_DATA / "icons"
 LIBRARY_FILE = APP_DATA / "library.json"
+PRESENTMON_VERSION = "2.6.0"
+PRESENTMON_FILENAME = f"PresentMon-{PRESENTMON_VERSION}-x64.exe"
 
 
 @dataclass
@@ -1000,13 +1005,308 @@ class _MEMORYSTATUSEX(ctypes.Structure):
     ]
 
 
+def find_presentmon_executable() -> Path | None:
+    """Locate the pinned, bundled per-present telemetry runtime."""
+    unpacked = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    candidates = (
+        unpacked / "presentmon" / PRESENTMON_FILENAME,
+        Path(__file__).resolve().parents[1] / "vendor" / "presentmon" / PRESENTMON_FILENAME,
+    )
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _positive_ms(value: Any) -> float | None:
+    """Return a valid positive millisecond value from a CSV cell."""
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def summarize_presentmon_samples(
+    samples: Iterable[tuple[float | None, float | None]],
+    *,
+    last_sample_age_seconds: float | None,
+) -> dict[str, Any]:
+    """Summarize real application/display frame timings without guessing FPS."""
+    rows = list(samples)[-240:]
+    empty = {
+        "fps": None,
+        "application_fps": None,
+        "frametime_ms": None,
+        "application_frametime_ms": None,
+        "fps_1_percent_low": None,
+        "fps_samples": 0,
+    }
+    if not rows or last_sample_age_seconds is None or last_sample_age_seconds > 2.5:
+        return empty
+
+    app_times = [frame for frame, _display in rows if frame is not None]
+    display_times = [display for _frame, display in rows if display is not None]
+    if len(app_times) < 3 and len(display_times) < 3:
+        return empty
+
+    app_mean = statistics.fmean(app_times) if app_times else None
+    # Display-time intervals reflect frames that made it to the screen. Fall back to
+    # PresentMon's app-frame intervals on APIs/drivers which do not report display timing.
+    timing_window = display_times if len(display_times) >= 3 else app_times
+    if not timing_window:
+        return empty
+
+    average_ms = statistics.fmean(timing_window)
+    if not math.isfinite(average_ms) or average_ms <= 0:
+        return empty
+
+    ordered = sorted(timing_window)
+    # Reciprocal of the nearest-rank 99th percentile frametime is a conventional 1% low estimate.
+    p99_index = min(len(ordered) - 1, max(0, math.ceil(0.99 * len(ordered)) - 1))
+    p99_ms = ordered[p99_index]
+    return {
+        "fps": round(1000.0 / average_ms, 1),
+        "application_fps": round(1000.0 / app_mean, 1) if app_mean else None,
+        "frametime_ms": round(average_ms, 3),
+        "application_frametime_ms": round(app_mean, 3) if app_mean else None,
+        "fps_1_percent_low": round(1000.0 / p99_ms, 1) if p99_ms > 0 else None,
+        "fps_samples": len(timing_window),
+    }
+
+
+class PresentMonReader:
+    """Use the bundled ETW collector invisibly and parse its live per-frame CSV."""
+
+    def __init__(self) -> None:
+        self.pid: int | None = None
+        self.process: subprocess.Popen[Any] | None = None
+        self.csv_path: Path | None = None
+        self.log_path: Path | None = None
+        self.log_handle: Any = None
+        self.byte_offset = 0
+        self.pending = b""
+        self.header: list[str] = []
+        self.samples: deque[tuple[float | None, float | None]] = deque(maxlen=600)
+        self.last_sample_at: float | None = None
+        self.last_problem: str | None = None
+        self.retry_after = 0.0
+        self.lock = threading.RLock()
+
+    def is_tracking(self, pid: int) -> bool:
+        return bool(self.pid == pid and self.process is not None and self.process.poll() is None)
+
+    def _read_startup_error(self) -> str | None:
+        if not self.log_path or not self.log_path.is_file():
+            return None
+        try:
+            with self.log_path.open("rb") as stream:
+                stream.seek(max(0, self.log_path.stat().st_size - 8192))
+                text = stream.read().decode("utf-8", errors="replace").casefold()
+        except OSError:
+            return None
+        if "access denied" in text or "error_access_denied" in text:
+            return "ETW access denied — Windows Performance Log permission is required"
+        if "failed to start trace session" in text or "unable to start trace" in text:
+            return "Windows could not start the per-frame ETW trace"
+        return None
+
+    def _close_log(self) -> None:
+        if self.log_handle is not None:
+            try:
+                self.log_handle.close()
+            except OSError:
+                pass
+            self.log_handle = None
+
+    def _clean_temporary_files(self) -> None:
+        for path in (self.csv_path, self.log_path):
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        self.csv_path = None
+        self.log_path = None
+
+    def _reset_parser(self) -> None:
+        self.byte_offset = 0
+        self.pending = b""
+        self.header = []
+        self.samples.clear()
+        self.last_sample_at = None
+
+    def stop(self) -> None:
+        """Stop the collector launched by this instance and delete temporary raw logs."""
+        with self.lock:
+            process = self.process
+            if process is not None and process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=1.5)
+                except (OSError, subprocess.TimeoutExpired):
+                    try:
+                        process.kill()
+                        process.wait(timeout=1.5)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+            self._close_log()
+            self.process = None
+            self.pid = None
+            self._clean_temporary_files()
+            self._reset_parser()
+
+    def start(self, pid: int) -> None:
+        """Begin tracking one real game PID with the bundled PresentMon ETW collector."""
+        with self.lock:
+            if self.is_tracking(pid):
+                return
+            self.stop()
+            if time.monotonic() < self.retry_after:
+                return
+            self.last_problem = None
+            if os.name != "nt":
+                self.last_problem = "Per-frame ETW telemetry is available on Windows only"
+                self.retry_after = time.monotonic() + 30.0
+                return
+
+            executable = find_presentmon_executable()
+            if executable is None:
+                self.last_problem = (
+                    "Bundled frame telemetry is missing; run scripts/fetch_presentmon.ps1"
+                )
+                self.retry_after = time.monotonic() + 30.0
+                return
+
+            try:
+                runtime_dir = APP_DATA / "telemetry-runtime"
+                runtime_dir.mkdir(parents=True, exist_ok=True)
+                token = uuid.uuid4().hex[:10]
+                self.csv_path = runtime_dir / f"frame-events-{pid}-{token}.csv"
+                self.log_path = runtime_dir / f"collector-{pid}-{token}.log"
+                self._reset_parser()
+                self.log_handle = self.log_path.open("wb")
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                self.process = subprocess.Popen(
+                    [
+                        str(executable),
+                        "--process_id", str(pid),
+                        "--output_file", str(self.csv_path),
+                        "--v2_metrics",
+                        "--exclude_dropped",
+                        "--no_console_stats",
+                        "--terminate_on_proc_exit",
+                        "--session_name", f"TrSSGameHub-{pid}-{token}",
+                    ],
+                    cwd=str(executable.parent),
+                    stdin=subprocess.DEVNULL,
+                    stdout=self.log_handle,
+                    stderr=subprocess.STDOUT,
+                    creationflags=flags,
+                    close_fds=True,
+                )
+                self.pid = pid
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                self.last_problem = f"Could not start frame telemetry ({type(exc).__name__})"
+                self.retry_after = time.monotonic() + 30.0
+                self._close_log()
+                self.process = None
+                self.pid = None
+                self._clean_temporary_files()
+
+    def _consume_csv(self) -> None:
+        path = self.csv_path
+        if path is None:
+            return
+        try:
+            current_size = path.stat().st_size
+            if current_size < self.byte_offset:
+                self._reset_parser()
+            with path.open("rb") as stream:
+                stream.seek(self.byte_offset)
+                fresh = stream.read()
+        except OSError:
+            return
+        if not fresh:
+            return
+
+        self.byte_offset += len(fresh)
+        self.pending += fresh
+        complete_lines = self.pending.split(b"\n")
+        self.pending = complete_lines.pop()
+        read_at = time.monotonic()
+
+        for raw_line in complete_lines:
+            raw_line = raw_line.rstrip(b"\r")
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8-sig" if not self.header else "utf-8", errors="replace")
+            try:
+                fields = next(csv.reader([line]))
+            except (csv.Error, StopIteration):
+                continue
+            if not self.header:
+                self.header = [field.strip() for field in fields]
+                continue
+            if len(fields) < len(self.header):
+                continue
+            row = dict(zip(self.header, fields))
+            try:
+                row_pid = int(row.get("ProcessID", "0"))
+            except (ValueError, TypeError):
+                continue
+            if self.pid and row_pid and row_pid != self.pid:
+                continue
+            frame_time = _positive_ms(row.get("FrameTime"))
+            display_time = _positive_ms(row.get("DisplayedTime"))
+            if frame_time is None and display_time is None:
+                continue
+            self.samples.append((frame_time, display_time))
+            self.last_sample_at = read_at
+
+    def sample(self, pid: int) -> dict[str, Any]:
+        with self.lock:
+            if not self.is_tracking(pid):
+                self.start(pid)
+            if self.process is None:
+                return {
+                    **summarize_presentmon_samples([], last_sample_age_seconds=None),
+                    "fps_source": self.last_problem or "Frame telemetry is not running",
+                }
+            if self.process.poll() is not None:
+                self.last_problem = self._read_startup_error() or "Frame telemetry exited before reporting data"
+                self.retry_after = time.monotonic() + 30.0
+                self._close_log()
+                self.process = None
+                self.pid = None
+                self._clean_temporary_files()
+                self._reset_parser()
+                return {
+                    **summarize_presentmon_samples([], last_sample_age_seconds=None),
+                    "fps_source": self.last_problem,
+                }
+
+            self._consume_csv()
+            age = time.monotonic() - self.last_sample_at if self.last_sample_at is not None else None
+            summary = summarize_presentmon_samples(self.samples, last_sample_age_seconds=age)
+            source = (
+                f"PresentMon {PRESENTMON_VERSION} ETW"
+                if summary["fps"] is not None
+                else self.last_problem or "Waiting for displayed frame events"
+            )
+            return {**summary, "fps_source": source}
+
+    def close(self) -> None:
+        self.stop()
+
+
 class PerformanceReader:
-    """Read CPU, memory and supported GPU counters without fabricating a game FPS value."""
+    """Read CPU, memory, GPU and true frame-presentation telemetry."""
 
     def __init__(self) -> None:
         self.prev_system: tuple[int, int, int] | None = None
         self.prev_process: dict[int, tuple[int, int, float]] = {}
         self.pdh = PDHReader()
+        self.presentmon = PresentMonReader()
+        self.last_game_key: str | None = None
+        self.last_game_pid = 0
 
     @staticmethod
     def _filetime_value(value: wintypes.FILETIME) -> int:
@@ -1142,22 +1442,49 @@ class PerformanceReader:
             kernel32.CloseHandle(handle)
 
     def sample(self, game: GameEntry | None) -> dict[str, Any]:
-        """Sample the selected game's active process and machine-wide CPU/RAM."""
+        """Sample system sensors and real per-frame timings from the selected game."""
         pid = 0
         hwnd = 0
         if game:
             found = _find_game_window(game)
             if found:
                 hwnd, pid = found
+                self.last_game_key = game.key
+                self.last_game_pid = pid
+            elif (
+                game.key == self.last_game_key
+                and self.last_game_pid
+                and self.presentmon.is_tracking(self.last_game_pid)
+            ):
+                # Keep process-level telemetry alive when the same game is minimized.
+                pid = self.last_game_pid
+            else:
+                self.last_game_key = game.key
+                self.last_game_pid = 0
+                self.presentmon.stop()
+        else:
+            self.last_game_key = None
+            self.last_game_pid = 0
+            self.presentmon.stop()
+
         memory = self._memory()
         process = self._process_stats(pid)
         gpu, vram = self.pdh.sample(pid) if pid else (None, None)
+        frame = self.presentmon.sample(pid) if pid else {
+            **summarize_presentmon_samples([], last_sample_age_seconds=None),
+            "fps_source": "Waiting for the selected game's process window",
+        }
         return {
             "timestamp_utc": utc_now_text(),
             "game": game.name if game else None,
             "game_window_found": bool(hwnd),
-            "fps": None,
-            "fps_source": "native per-present ETW telemetry is not connected",
+            "fps": frame["fps"],
+            "application_fps": frame["application_fps"],
+            "frametime_ms": frame["frametime_ms"],
+            "application_frametime_ms": frame["application_frametime_ms"],
+            "fps_1_percent_low": frame["fps_1_percent_low"],
+            "fps_samples": frame["fps_samples"],
+            "fps_source": frame["fps_source"],
             "system_cpu_percent": self._system_cpu(),
             "game_cpu_percent": process["game_cpu_percent"],
             "game_ram_bytes": process["game_ram_bytes"],
@@ -1169,6 +1496,7 @@ class PerformanceReader:
         }
 
     def close(self) -> None:
+        self.presentmon.close()
         self.pdh.close()
 
 
@@ -1397,7 +1725,7 @@ class PerformanceOverlay:
             self.window.wm_attributes("-alpha", 0.92)
         except tk.TclError:
             pass
-        self.window.geometry("306x222+0+38")
+        self.window.geometry("342x294+0+38")
         self.window.withdraw()
 
         self.heading = tk.Label(
@@ -1418,7 +1746,7 @@ class PerformanceOverlay:
         self.game_label.pack(fill="x")
         self.metrics_label = tk.Label(
             self.window,
-            text="FPS     —  (native ETW unavailable)\nCPU     —\nGPU 3D  —\nVRAM    —\nRAM     —\nGAME    waiting for a game window",
+            text="FPS     —  | FT —\n1% LOW  —\nAPP FPS —\nCPU     —\nGPU 3D  —\nVRAM    —\nRAM     —\nGAME    waiting for a game window",
             bg="#11151b",
             fg="#c6ceda",
             font=("Consolas", 10),
@@ -1507,13 +1835,25 @@ class PerformanceOverlay:
 
         m = self.last_metrics
         game_state = "game window detected" if m.get("game_window_found") else "waiting for game window"
+        fps_value = m.get("fps")
+        fps_text = f"{float(fps_value):.1f}" if fps_value is not None else "—"
+        low_value = m.get("fps_1_percent_low")
+        low_text = f"{float(low_value):.1f}" if low_value is not None else "—"
+        app_fps = m.get("application_fps")
+        app_fps_text = f"{float(app_fps):.1f}" if app_fps is not None else "—"
+        frametime = m.get("frametime_ms")
+        frametime_text = f"{float(frametime):.2f} ms" if frametime is not None else "—"
+        fps_source = str(m.get("fps_source") or "Waiting for frame telemetry")
         lines = [
-            "FPS     —  (native ETW unavailable)",
-            f"CPU     {_friendly_metric(m.get('system_cpu_percent'), '%')} system  /  {_friendly_metric(m.get('game_cpu_percent'), '%')} game",
+            f"FPS     {fps_text}  | FT {frametime_text}",
+            f"1% LOW  {low_text} FPS",
+            f"APP FPS {app_fps_text}",
+            f"CPU     {_friendly_metric(m.get('system_cpu_percent'), '%')} system / {_friendly_metric(m.get('game_cpu_percent'), '%')} game",
             f"GPU 3D  {_friendly_metric(m.get('game_gpu_3d_percent'), '%')}",
-            f"VRAM    {_format_bytes(m.get('game_dedicated_gpu_bytes'))} used by game",
-            f"RAM     {_friendly_metric(m.get('ram_percent'), '%')}  {_format_bytes(m.get('ram_used_bytes'))} / {_format_bytes(m.get('ram_total_bytes'))}",
+            f"VRAM    {_format_bytes(m.get('game_dedicated_gpu_bytes'))} game use",
+            f"RAM     {_friendly_metric(m.get('ram_percent'), '%')} {_format_bytes(m.get('ram_used_bytes'))} / {_format_bytes(m.get('ram_total_bytes'))}",
             f"GAME    {game_state}",
+            f"FRAME   {fps_source[:48]}",
             f"DATA    {'CAPTURING' if capture_active else 'monitoring only'}",
         ]
         self.metrics_label.configure(text="\n".join(lines))
