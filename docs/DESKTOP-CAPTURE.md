@@ -42,7 +42,7 @@ Existing output paths are protected by default. The --force option can replace o
 
 1. It captures visible desktop pixels through DXGI Desktop Duplication. It does not attach to or modify a game process.
 2. It does not promise capture of protected video or protected game surfaces. Desktop Duplication can fail after display-mode changes or when desktop access is lost; restart the session after such a failure.
-3. The sampler reads GPU textures back to CPU memory and encodes PNGs. Its achieved frame rate is not in-game FPS, rendering latency, or an Arc B580 performance result.
+3. The sampler copies updated desktop textures into a staging resource, but maps pixels into CPU memory and encodes PNGs only at the requested sample cadence. Copy/readback still has some overhead; its achieved output rate is not in-game FPS, rendering latency, or an Arc B580 performance result.
 4. Color-space metadata is set to unknown rather than guessing how Windows HDR, tone mapping, overlays, and display color management affected pixels.
 5. The manifest deliberately omits depth, motion, history, and ground-truth references. TrSS does not fabricate them. A renderer-specific integration must provide real auxiliary buffers before training or running a model that requires them.
 6. The Windows CI workflow builds this executable and uses --self-test-png to verify WIC PNG encoding. That test does not access the desktop or claim hardware validation.

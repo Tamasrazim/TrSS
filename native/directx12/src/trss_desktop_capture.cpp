@@ -330,7 +330,7 @@ private:
 
 static bool acquire_latest(IDXGIOutputDuplication* duplication, ID3D11Device* device,
     ID3D11DeviceContext* context, int wait_ms, UINT w, UINT h,
-    ComPtr<ID3D11Texture2D>& staging, std::vector<std::uint8_t>& pixels) {
+    ComPtr<ID3D11Texture2D>& staging) {
     DXGI_OUTDUPL_FRAME_INFO info{};
     ComPtr<IDXGIResource> resource;
     const HRESULT acquired=duplication->AcquireNextFrame(static_cast<UINT>(wait_ms),&info,&resource);
@@ -349,24 +349,17 @@ static bool acquire_latest(IDXGIOutputDuplication* duplication, ID3D11Device* de
         if (d.Width!=w || d.Height!=h)
             throw std::runtime_error("Desktop resolution changed during capture; restart the session.");
         const std::uint64_t bytes=static_cast<std::uint64_t>(w)*h*4U;
-        if (bytes>kMaxFrameBytes) throw std::runtime_error("Frame readback exceeds the 512 MiB safety limit.");
+        if (bytes>kMaxFrameBytes)
+            throw std::runtime_error("Frame readback exceeds the 512 MiB safety limit.");
         if (!staging) {
             d.Usage=D3D11_USAGE_STAGING; d.BindFlags=0;
             d.CPUAccessFlags=D3D11_CPU_ACCESS_READ; d.MiscFlags=0;
             hr_check(device->CreateTexture2D(&d,nullptr,&staging),"Create readback texture");
         }
+        // Keep the newest image in a GPU staging resource, but do not block on
+        // CPU mapping for every desktop update. The main loop maps only when a
+        // sample is due to be written.
         context->CopyResource(staging.Get(),source.Get());
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        hr_check(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped),"Map readback texture");
-        try {
-            pixels.resize(static_cast<size_t>(bytes));
-            const size_t row=static_cast<size_t>(w)*4U;
-            const auto* source_bytes=static_cast<const std::uint8_t*>(mapped.pData);
-            for (UINT y=0;y<h;++y)
-                std::memcpy(pixels.data()+static_cast<size_t>(y)*row,
-                            source_bytes+static_cast<size_t>(y)*mapped.RowPitch,row);
-        } catch (...) { context->Unmap(staging.Get(),0); throw; }
-        context->Unmap(staging.Get(),0);
         const HRESULT release=duplication->ReleaseFrame();
         released=true;
         hr_check(release,"Release desktop frame");
@@ -376,6 +369,29 @@ static bool acquire_latest(IDXGIOutputDuplication* duplication, ID3D11Device* de
         throw;
     }
 }
+static void readback_staging(ID3D11DeviceContext* context, ID3D11Texture2D* staging,
+    UINT w, UINT h, std::vector<std::uint8_t>& pixels) {
+    if (!staging) throw std::runtime_error("No desktop frame is available for readback.");
+    const std::uint64_t stride=static_cast<std::uint64_t>(w)*4U;
+    const std::uint64_t bytes=stride*h;
+    if (!w || !h || stride>UINT_MAX || bytes>UINT_MAX || bytes>kMaxFrameBytes)
+        throw std::runtime_error("Invalid desktop readback dimensions.");
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    hr_check(context->Map(staging,0,D3D11_MAP_READ,0,&mapped),"Map readback texture");
+    try {
+        pixels.resize(static_cast<size_t>(bytes));
+        const size_t row=static_cast<size_t>(w)*4U;
+        const auto* source_bytes=static_cast<const std::uint8_t*>(mapped.pData);
+        for (UINT y=0;y<h;++y)
+            std::memcpy(pixels.data()+static_cast<size_t>(y)*row,
+                        source_bytes+static_cast<size_t>(y)*mapped.RowPitch,row);
+    } catch (...) {
+        context->Unmap(staging,0);
+        throw;
+    }
+    context->Unmap(staging,0);
+}
+
 static void write_report(const fs::path& root, const OutputChoice& choice, const Options& o,
     const std::string& start_utc, const std::string& end_utc, UINT w, UINT h,
     int frames, int skipped, double elapsed) {
@@ -455,6 +471,9 @@ static void capture(const Options& o) {
     while (Clock::now()<deadline && frames<o.max_frames) {
         auto now=Clock::now();
         if (have_pixels && now>=next_sample) {
+            // Pull pixels to CPU only at the requested output cadence. Desktop
+            // updates between samples stay on the GPU-side staging texture.
+            readback_staging(context.Get(),readback.Get(),w,h,latest);
             const double timestamp=std::chrono::duration<double>(now-start).count();
             std::wostringstream name;
             name << L"frame_" << std::setw(6) << std::setfill(L'0') << frames << L".png";
@@ -482,7 +501,7 @@ static void capture(const Options& o) {
             wait_ms=static_cast<int>(std::clamp<long long>(left,1,8));
         }
         have_pixels=acquire_latest(duplication.Get(),device.Get(),context.Get(),wait_ms,w,h,
-            readback,latest) || have_pixels;
+            readback) || have_pixels;
     }
     manifest.flush();
     if (!manifest) throw std::runtime_error("Could not flush capture manifest.");
