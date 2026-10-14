@@ -441,6 +441,11 @@ def build_matrix_row(
         for field in values if values[field] is not None
     }
     missing = [field for field, value in values.items() if value is None]
+    not_confirmed = [
+        field for field, value in values.items()
+        if value is not None and value.strip().casefold()
+        in {"unknown", "not captured", "not verified", "unavailable", "?"}
+    ]
     # Several engines store enum indices (for example TextureQuality=3) instead
     # of names. Keep the raw number for traceability, but never call it exact until
     # the participant replaces it with the value shown by the game's own menu.
@@ -479,7 +484,7 @@ def build_matrix_row(
         summaries[f"average_{key}"] = round(sum(samples) / len(samples), 6) if samples else None
         summaries[f"sample_count_{key}"] = len(samples)
 
-    incomplete_fields = sorted(set(missing) | set(unresolved_numeric))
+    incomplete_fields = sorted(set(missing) | set(not_confirmed) | set(unresolved_numeric))
     known = len(STANDARD_SETTINGS) - len(incomplete_fields)
     return {
         "schema_version": "trss.graphics-matrix/1.0",
@@ -497,6 +502,7 @@ def build_matrix_row(
             "total_standard_settings": len(STANDARD_SETTINGS),
             "coverage_percent": round(100 * known / len(STANDARD_SETTINGS), 2),
             "missing_settings": missing,
+            "settings_not_confirmed": not_confirmed,
             "settings_needing_value_decoding": unresolved_numeric,
         },
         "settings_hash_sha256": settings_hash,
