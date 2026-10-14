@@ -16,19 +16,21 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 
 ## Project progress
 
-**Overall engineering estimate toward a complete, live, physically validated neural renderer: 35%**
+**Overall engineering estimate toward a complete, live, physically validated neural renderer: 40%**
 
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
-*Animated isometric progress graphic · 35% estimated roadmap completion*
+*Animated isometric progress graphic · 40% estimated roadmap completion*
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. The 35% fill is a roadmap estimate; the light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This 5-point increment reflects stronger dataset-split checks, safer training resumption, and clearer offline timing reports. Actual training epochs, live capture, and physical Arc B580 validation remain incomplete; the light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
 | Python inference, model inspection, and device selection | Implemented |
 | Frame/tensor contracts and offline frame adapters | Implemented |
 | Temporal-history safety and CPU-side tests | Implemented |
+| Dataset-split leakage checks and resume-setting validation | Implemented; automated tests |
+| Offline checkpoint timing breakdown | Separates setup, model, composition, and output writing; not live FPS |
 | Direct3D 9 legacy render-target probe | Experimental; device/clear/readback test only |
 | Direct3D 11 compute probe | Experimental; HLSL dispatch/readback test only |
 | Direct3D 12 compute probe | Experimental; HLSL dispatch/readback test only |
