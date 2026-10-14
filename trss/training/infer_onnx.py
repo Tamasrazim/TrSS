@@ -84,7 +84,9 @@ def _read_mask(path: Path, height: int, width: int) -> np.ndarray:
     return np.ascontiguousarray(mask)
 
 
-def _prepare_inputs(\n    row: dict[str, Any], *, motion_scale_px: float\n) -> tuple[dict[str, np.ndarray], tuple[int, int], np.ndarray]:
+def _prepare_inputs(
+    row: dict[str, Any], *, motion_scale_px: float
+) -> tuple[dict[str, np.ndarray], tuple[int, int], np.ndarray]:
     """Create the same feature ordering and exact 2x area reductions as training."""
     current = _read_rgb(Path(row["low_res"]))
     height, width = current.shape[-2:]
