@@ -2,7 +2,7 @@ name: DirectX 9, 11, and 12 backend checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/dataset-capture-tool]
   workflow_dispatch:
 
 permissions:
@@ -29,3 +29,17 @@ jobs:
 
       - name: Run the D3D12 compute roundtrip on WARP
         run: .\build\directx12\Release\trss_dx12_probe.exe --warp-self-test
+
+
+      - name: Smoke-test the desktop capture PNG encoder
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE "build/directx12/capture-self-test.png"
+          .\build\directx12\Release\trss_desktop_capture.exe --self-test-png $path
+          if (!(Test-Path $path)) { throw "PNG self-test output was not created." }
+          $bytes = [System.IO.File]::ReadAllBytes($path)
+          $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+          if ($bytes.Length -lt 8) { throw "PNG self-test output is too short." }
+          for ($i = 0; $i -lt 8; $i++) {
+            if ($bytes[$i] -ne $signature[$i]) { throw "PNG self-test signature mismatch." }
+          }

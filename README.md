@@ -18,7 +18,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled 3D pilot data workflow and an offline checkpoint evaluator that compares trained predictions with bicubic interpolation using per-frame, per-scene, and aggregate MAE/RMSE/PSNR plus visual comparisons. CI trains a tiny CPU smoke model and evaluates its saved checkpoint on held-out synthetic scenes. Actual game capture, representative training data, photorealistic-quality validation, live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
+This is a roadmap estimate, not a measured performance figure or a claim that real-time neural rendering already works. This increment adds a controlled 3D pilot data workflow and an offline checkpoint evaluator that compares trained predictions with bicubic interpolation using per-frame, per-scene, and aggregate MAE/RMSE/PSNR plus visual comparisons. CI trains a tiny CPU smoke model and evaluates its saved checkpoint on held-out synthetic scenes. A first-party Windows DXGI sampler now records color-only desktop frames into a timestamped sequence, but it does not expose game depth/motion buffers or provide a live inference hook. Representative training data, photorealistic-quality validation, full live integration, and physical Arc B580 validation remain incomplete. The light sweep is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -36,9 +36,11 @@ This is a roadmap estimate, not a measured performance figure or a claim that re
 | Direct3D 9 legacy render-target probe | Experimental; device/clear/readback test only |
 | Direct3D 11 compute probe | Experimental; HLSL dispatch/readback test only |
 | Direct3D 12 compute probe | Experimental; HLSL dispatch/readback test only |
+| Windows DXGI Desktop Duplication sampler | Color-only PNG sequences plus TrSS-compatible timing manifest; no depth/motion or game injection |
 | Native Vulkan/XMX execution path | Experimental; hardware validation remains |
 | Verified neural-rendering model and compatible weights | Not yet bundled or validated |
-| Live game/desktop frame capture and integration | Not implemented |
+| Desktop color acquisition | DXGI Desktop Duplication sampler implemented; it records visible pixels only |
+| Live game integration with real depth/motion and history reprojection | Not implemented; requires renderer-specific buffer access |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
 TrSS is independent research software. The engine must not label a conventional filter or generic super-resolution model as neural rendering.
@@ -56,6 +58,7 @@ TrSS is independent research software. The engine must not label a conventional 
 - **Offline temporal sequence runner:** `render-sequence` reads an explicit JSONL manifest, processes recorded frames in order, carries normalized RGB history only across continuous frames, and resets history after camera cuts, scene/resolution changes, gaps, or stale timestamps. Required depth/motion inputs must be real files; after a history reset, a model that needs history requires an explicit `initial_history` seed.
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
+- **Windows desktop capture sampler:** `native/directx12/src/trss_desktop_capture.cpp` builds `trss_desktop_capture`, a first-party DXGI Desktop Duplication recorder. It writes numbered PNGs, a timestamped manifest, and capture metadata using a transactional output folder. It captures visible color only; it does not inject into games or read depth, motion, history, or ground-truth buffers. See `docs/DESKTOP-CAPTURE.md`.
 - **DirectX 9/11/12 API probes:** `native/directx12/` builds three separate executables. Direct3D 9 creates a legacy device and verifies a cleared render target through readback; D3D11 runs an HLSL compute test; D3D12 runs a separate HLSL compute/fence test. D3D11 and D3D12 have WARP CI tests. These are native API smoke tests, not game hooks, neural inference, or B580 performance validation.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
 - **Offline paired-frame review gallery:** `trss.training.review_dataset` and `trss-review-dataset` create a responsive, searchable HTML page with local thumbnails for a deterministic sample balanced across scene IDs. The tool exposes source paths, dimensions, history-reset state, and image decoding errors for manual review without altering the source dataset.

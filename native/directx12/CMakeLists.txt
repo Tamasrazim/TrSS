@@ -54,3 +54,12 @@ target_link_libraries(trss_d3d9_probe PRIVATE d3d9 user32)
 set_target_properties(trss_d3d9_probe PROPERTIES CXX_EXTENSIONS OFF)
 
 message(STATUS "TrSS API probes: Direct3D 9, Direct3D 11, and Direct3D 12")
+
+
+# Color-only DXGI Desktop Duplication sampler; this is not a game hook.
+add_executable(trss_desktop_capture src/trss_desktop_capture.cpp)
+target_compile_features(trss_desktop_capture PRIVATE cxx_std_17)
+target_compile_options(trss_desktop_capture PRIVATE /W4 /permissive- /EHsc /utf-8)
+target_link_libraries(trss_desktop_capture PRIVATE d3d11 dxgi windowscodecs ole32)
+set_target_properties(trss_desktop_capture PROPERTIES CXX_EXTENSIONS OFF)
+message(STATUS "TrSS color-only Windows desktop sampler enabled")
