@@ -20,7 +20,7 @@
 #include <d2d1helper.h>
 #include <dwrite.h>
 #include <windowsx.h>
-#include <dxgi1_2.h>
+#include <dxgi1_4.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -146,15 +146,29 @@ CreateSwapChainForHwndFn g_realCreateSwapChainForHwnd = nullptr;
 PresentFn g_realPresent = nullptr;
 ResizeBuffersFn g_realResizeBuffers = nullptr;
 
+struct BackBufferLayer {
+    // Flip-model swap chains rotate through multiple buffers; each buffer has
+    // its own copy texture, views and Direct2D surface target.
+    ComPtr<ID3D11Texture2D> backBuffer;
+    ComPtr<ID3D11Texture2D> copyTexture;
+    ComPtr<ID3D11ShaderResourceView> sourceView;
+    ComPtr<ID3D11RenderTargetView> renderTargetView;
+    ComPtr<ID2D1RenderTarget> d2dTarget;
+    ComPtr<ID2D1SolidColorBrush> panelBrush;
+    ComPtr<ID2D1SolidColorBrush> panelHeaderBrush;
+    ComPtr<ID2D1SolidColorBrush> textBrush;
+    ComPtr<ID2D1SolidColorBrush> mutedBrush;
+    ComPtr<ID2D1SolidColorBrush> accentBrush;
+    ComPtr<ID2D1SolidColorBrush> sliderBackBrush;
+    ComPtr<ID2D1SolidColorBrush> buttonBrush;
+};
+
 struct RuntimeResources {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11Device1> device1;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11DeviceContext1> context1;
     ComPtr<ID3DDeviceContextState> overlayState;
-    ComPtr<ID3D11Texture2D> copyTexture;
-    ComPtr<ID3D11ShaderResourceView> sourceView;
-    ComPtr<ID3D11RenderTargetView> backBufferView;
     ComPtr<ID3D11VertexShader> vertexShader;
     ComPtr<ID3D11PixelShader> pixelShader;
     ComPtr<ID3D11Buffer> parameterBuffer;
@@ -164,20 +178,14 @@ struct RuntimeResources {
     ComPtr<ID3D11DepthStencilState> depthStencil;
     ComPtr<ID2D1Factory> d2dFactory;
     ComPtr<IDWriteFactory> writeFactory;
-    ComPtr<ID2D1RenderTarget> d2dTarget;
-    ComPtr<ID2D1SolidColorBrush> panelBrush;
-    ComPtr<ID2D1SolidColorBrush> panelHeaderBrush;
-    ComPtr<ID2D1SolidColorBrush> textBrush;
-    ComPtr<ID2D1SolidColorBrush> mutedBrush;
-    ComPtr<ID2D1SolidColorBrush> accentBrush;
-    ComPtr<ID2D1SolidColorBrush> sliderBackBrush;
-    ComPtr<ID2D1SolidColorBrush> buttonBrush;
     ComPtr<IDWriteTextFormat> titleFormat;
     ComPtr<IDWriteTextFormat> textFormat;
     ComPtr<IDWriteTextFormat> smallFormat;
     ComPtr<IDWriteTextFormat> buttonFormat;
+    std::vector<BackBufferLayer> backBuffers;
     UINT width = 0;
     UINT height = 0;
+    UINT bufferCount = 0;
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     IDXGISwapChain* swapChain = nullptr;
     bool ready = false;
@@ -491,14 +499,16 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
 })";
 
 void release_d2d_resources() {
-    g_resources.d2dTarget.Reset();
-    g_resources.panelBrush.Reset();
-    g_resources.panelHeaderBrush.Reset();
-    g_resources.textBrush.Reset();
-    g_resources.mutedBrush.Reset();
-    g_resources.accentBrush.Reset();
-    g_resources.sliderBackBrush.Reset();
-    g_resources.buttonBrush.Reset();
+    for (auto& buffer : g_resources.backBuffers) {
+        buffer.d2dTarget.Reset();
+        buffer.panelBrush.Reset();
+        buffer.panelHeaderBrush.Reset();
+        buffer.textBrush.Reset();
+        buffer.mutedBrush.Reset();
+        buffer.accentBrush.Reset();
+        buffer.sliderBackBrush.Reset();
+        buffer.buttonBrush.Reset();
+    }
     g_resources.titleFormat.Reset();
     g_resources.textFormat.Reset();
     g_resources.smallFormat.Reset();
@@ -509,6 +519,7 @@ void release_d2d_resources() {
 
 void reset_render_resources() {
     release_d2d_resources();
+    g_resources.backBuffers.clear();
     g_resources.depthStencil.Reset();
     g_resources.blend.Reset();
     g_resources.rasterizer.Reset();
@@ -516,9 +527,6 @@ void reset_render_resources() {
     g_resources.parameterBuffer.Reset();
     g_resources.vertexShader.Reset();
     g_resources.pixelShader.Reset();
-    g_resources.backBufferView.Reset();
-    g_resources.sourceView.Reset();
-    g_resources.copyTexture.Reset();
     g_resources.overlayState.Reset();
     g_resources.context1.Reset();
     g_resources.context.Reset();
@@ -526,71 +534,100 @@ void reset_render_resources() {
     g_resources.device.Reset();
     g_resources.width = 0;
     g_resources.height = 0;
+    g_resources.bufferCount = 0;
     g_resources.format = DXGI_FORMAT_UNKNOWN;
     g_resources.swapChain = nullptr;
     g_resources.ready = false;
 }
 
-bool make_d2d_target(ID3D11Texture2D* backBuffer) {
+bool make_d2d_target(BackBufferLayer& layer, ID3D11Texture2D* backBuffer) {
     ComPtr<IDXGISurface> surface;
     if (FAILED(backBuffer->QueryInterface(IID_PPV_ARGS(&surface)))) return false;
-    if (FAILED(D2D1CreateFactory(
-            D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
-            reinterpret_cast<void**>(g_resources.d2dFactory.GetAddressOf())))) return false;
-    if (FAILED(DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(g_resources.writeFactory.GetAddressOf())))) return false;
+    if (!g_resources.d2dFactory) {
+        if (FAILED(D2D1CreateFactory(
+                D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr,
+                reinterpret_cast<void**>(g_resources.d2dFactory.GetAddressOf())))) return false;
+    }
+    if (!g_resources.writeFactory) {
+        if (FAILED(DWriteCreateFactory(
+                DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                reinterpret_cast<IUnknown**>(g_resources.writeFactory.GetAddressOf())))) return false;
+    }
+
     D2D1_RENDER_TARGET_PROPERTIES properties = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_DEFAULT,
         D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_IGNORE),
         96.0f, 96.0f, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_FEATURE_LEVEL_DEFAULT);
     if (FAILED(g_resources.d2dFactory->CreateDxgiSurfaceRenderTarget(
-            surface.Get(), &properties, &g_resources.d2dTarget))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x10141B, 0.97f), &g_resources.panelBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x1B222D, 1.0f), &g_resources.panelHeaderBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0xF1F4F8, 1.0f), &g_resources.textBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x96A2B3, 1.0f), &g_resources.mutedBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x88C7FF, 1.0f), &g_resources.accentBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x394454, 1.0f), &g_resources.sliderBackBrush))) return false;
-    if (FAILED(g_resources.d2dTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0x222B37, 1.0f), &g_resources.buttonBrush))) return false;
+            surface.Get(), &properties, &layer.d2dTarget))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x10141B, 0.97f), &layer.panelBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x1B222D, 1.0f), &layer.panelHeaderBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0xF1F4F8, 1.0f), &layer.textBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x96A2B3, 1.0f), &layer.mutedBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x88C7FF, 1.0f), &layer.accentBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x394454, 1.0f), &layer.sliderBackBrush))) return false;
+    if (FAILED(layer.d2dTarget->CreateSolidColorBrush(
+            D2D1::ColorF(0x222B37, 1.0f), &layer.buttonBrush))) return false;
 
-    const HRESULT titleHr = g_resources.writeFactory->CreateTextFormat(
-        L"Segoe UI Semibold", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"en-US",
-        &g_resources.titleFormat);
-    const HRESULT textHr = g_resources.writeFactory->CreateTextFormat(
-        L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-US",
-        &g_resources.textFormat);
-    const HRESULT smallHr = g_resources.writeFactory->CreateTextFormat(
-        L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"en-US",
-        &g_resources.smallFormat);
-    const HRESULT buttonHr = g_resources.writeFactory->CreateTextFormat(
-        L"Segoe UI Semibold", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-US",
-        &g_resources.buttonFormat);
-    return SUCCEEDED(titleHr) && SUCCEEDED(textHr) && SUCCEEDED(smallHr) && SUCCEEDED(buttonHr);
+    if (!g_resources.titleFormat) {
+        const HRESULT titleHr = g_resources.writeFactory->CreateTextFormat(
+            L"Segoe UI Semibold", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"en-US",
+            &g_resources.titleFormat);
+        const HRESULT textHr = g_resources.writeFactory->CreateTextFormat(
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-US",
+            &g_resources.textFormat);
+        const HRESULT smallHr = g_resources.writeFactory->CreateTextFormat(
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"en-US",
+            &g_resources.smallFormat);
+        const HRESULT buttonHr = g_resources.writeFactory->CreateTextFormat(
+            L"Segoe UI Semibold", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-US",
+            &g_resources.buttonFormat);
+        if (FAILED(titleHr) || FAILED(textHr) || FAILED(smallHr) || FAILED(buttonHr)) return false;
+    }
+    return true;
+}
+
+bool initialize_back_buffer_layer(
+    BackBufferLayer& layer, ID3D11Device* device,
+    ID3D11Texture2D* backBuffer, const D3D11_TEXTURE2D_DESC& description) {
+    layer.backBuffer = backBuffer;
+    D3D11_TEXTURE2D_DESC copyDesc = description;
+    copyDesc.Usage = D3D11_USAGE_DEFAULT;
+    copyDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    copyDesc.CPUAccessFlags = 0;
+    copyDesc.MiscFlags = 0;
+    copyDesc.SampleDesc.Count = 1;
+    copyDesc.SampleDesc.Quality = 0;
+    if (FAILED(device->CreateTexture2D(&copyDesc, nullptr, &layer.copyTexture))) return false;
+    if (FAILED(device->CreateShaderResourceView(
+            layer.copyTexture.Get(), nullptr, &layer.sourceView))) return false;
+    if (FAILED(device->CreateRenderTargetView(
+            backBuffer, nullptr, &layer.renderTargetView))) return false;
+    return make_d2d_target(layer, backBuffer);
 }
 
 bool initialize_render_resources(
     IDXGISwapChain* swapChain, ID3D11Device* device,
-    ID3D11DeviceContext* context, ID3D11Texture2D* backBuffer,
+    ID3D11DeviceContext* context, UINT requestedBufferCount,
     const D3D11_TEXTURE2D_DESC& description) {
     g_resources.device = device;
-    g_resources.context = context;
     g_resources.width = description.Width;
     g_resources.height = description.Height;
     g_resources.format = description.Format;
     g_resources.swapChain = swapChain;
 
+    const UINT bufferCount = std::max<UINT>(1, std::min<UINT>(requestedBufferCount, 8));
+    g_resources.bufferCount = bufferCount;
     if (FAILED(device->QueryInterface(IID_PPV_ARGS(&g_resources.device1)))) return false;
     if (FAILED(context->QueryInterface(IID_PPV_ARGS(&g_resources.context1)))) return false;
 
@@ -599,19 +636,6 @@ bool initialize_render_resources(
     if (FAILED(g_resources.device1->CreateDeviceContextState(
             0, levels, static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
             __uuidof(ID3D11Device), &chosen, &g_resources.overlayState))) return false;
-
-    D3D11_TEXTURE2D_DESC copyDesc = description;
-    copyDesc.Usage = D3D11_USAGE_DEFAULT;
-    copyDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    copyDesc.CPUAccessFlags = 0;
-    copyDesc.MiscFlags = 0;
-    copyDesc.SampleDesc.Count = 1;
-    copyDesc.SampleDesc.Quality = 0;
-    if (FAILED(device->CreateTexture2D(&copyDesc, nullptr, &g_resources.copyTexture))) return false;
-    if (FAILED(device->CreateShaderResourceView(
-            g_resources.copyTexture.Get(), nullptr, &g_resources.sourceView))) return false;
-    if (FAILED(device->CreateRenderTargetView(
-            backBuffer, nullptr, &g_resources.backBufferView))) return false;
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
@@ -651,11 +675,25 @@ bool initialize_render_resources(
     depthDesc.StencilEnable = FALSE;
     if (FAILED(device->CreateDepthStencilState(&depthDesc, &g_resources.depthStencil))) return false;
 
-    if (!make_d2d_target(backBuffer)) return false;
+    // Flip-model games rotate the active index on each Present. Prepare one set
+    // of target resources per buffer so effect rendering avoids per-frame creation.
+    for (UINT index = 0; index < bufferCount; ++index) {
+        ComPtr<ID3D11Texture2D> backBuffer;
+        if (FAILED(swapChain->GetBuffer(index, IID_PPV_ARGS(&backBuffer)))) return false;
+        D3D11_TEXTURE2D_DESC bufferDescCurrent{};
+        backBuffer->GetDesc(&bufferDescCurrent);
+        if (bufferDescCurrent.Width != description.Width ||
+            bufferDescCurrent.Height != description.Height ||
+            bufferDescCurrent.Format != description.Format ||
+            bufferDescCurrent.SampleDesc.Count != 1) return false;
+        BackBufferLayer layer;
+        if (!initialize_back_buffer_layer(layer, device, backBuffer.Get(), bufferDescCurrent)) return false;
+        g_resources.backBuffers.push_back(std::move(layer));
+    }
+
     g_resources.ready = true;
     return true;
 }
-
 void draw_text(
     ID2D1RenderTarget* target, IDWriteTextFormat* format,
     const std::wstring& value, const D2D1_RECT_F& bounds,
@@ -737,17 +775,17 @@ void handle_menu_click(HWND hwnd, int x, int y) {
     }
 }
 
-void draw_menu() {
-    if (!g_menuVisible.load() || !g_resources.d2dTarget) return;
-    ID2D1RenderTarget* target = g_resources.d2dTarget.Get();
+void draw_menu(BackBufferLayer& layer) {
+    if (!g_menuVisible.load() || !layer.d2dTarget) return;
+    ID2D1RenderTarget* target = layer.d2dTarget.Get();
     // Reuse brushes created with the back-buffer target to avoid per-frame COM allocations.
-    ID2D1SolidColorBrush* white = g_resources.textBrush.Get();
-    ID2D1SolidColorBrush* muted = g_resources.mutedBrush.Get();
-    ID2D1SolidColorBrush* accent = g_resources.accentBrush.Get();
-    ID2D1SolidColorBrush* panel = g_resources.panelBrush.Get();
-    ID2D1SolidColorBrush* panelHeader = g_resources.panelHeaderBrush.Get();
-    ID2D1SolidColorBrush* sliderBack = g_resources.sliderBackBrush.Get();
-    ID2D1SolidColorBrush* button = g_resources.buttonBrush.Get();
+    ID2D1SolidColorBrush* white = layer.textBrush.Get();
+    ID2D1SolidColorBrush* muted = layer.mutedBrush.Get();
+    ID2D1SolidColorBrush* accent = layer.accentBrush.Get();
+    ID2D1SolidColorBrush* panel = layer.panelBrush.Get();
+    ID2D1SolidColorBrush* panelHeader = layer.panelHeaderBrush.Get();
+    ID2D1SolidColorBrush* sliderBack = layer.sliderBackBrush.Get();
+    ID2D1SolidColorBrush* button = layer.buttonBrush.Get();
     if (!white || !muted || !accent || !panel || !panelHeader || !sliderBack || !button) return;
 
     target->BeginDraw();
@@ -849,10 +887,24 @@ void render_frame(IDXGISwapChain* swapChain) {
     ComPtr<ID3D11DeviceContext> context;
     device->GetImmediateContext(&context);
     if (!context) return;
-    ComPtr<ID3D11Texture2D> backBuffer;
-    if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) return;
+
+    DXGI_SWAP_CHAIN_DESC swapDescription{};
+    if (FAILED(swapChain->GetDesc(&swapDescription))) return;
+    if (swapDescription.OutputWindow) hook_game_window(swapDescription.OutputWindow);
+
+    // GetCurrentBackBufferIndex is essential for DXGI flip-model swap chains:
+    // GetBuffer(0) is not necessarily the buffer the game just rendered to.
+    UINT activeIndex = 0;
+    ComPtr<IDXGISwapChain3> swapChain3;
+    if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))) && swapChain3) {
+        activeIndex = swapChain3->GetCurrentBackBufferIndex();
+    }
+    const UINT bufferCount = std::max<UINT>(1, swapDescription.BufferCount);
+
+    ComPtr<ID3D11Texture2D> activeBackBuffer;
+    if (FAILED(swapChain->GetBuffer(activeIndex, IID_PPV_ARGS(&activeBackBuffer)))) return;
     D3D11_TEXTURE2D_DESC description{};
-    backBuffer->GetDesc(&description);
+    activeBackBuffer->GetDesc(&description);
 
     if (description.SampleDesc.Count != 1 ||
         (description.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
@@ -864,28 +916,32 @@ void render_frame(IDXGISwapChain* swapChain) {
 
     if (!g_resources.ready || g_resources.device.Get() != device.Get() ||
         g_resources.width != description.Width || g_resources.height != description.Height ||
-        g_resources.format != description.Format || g_resources.swapChain != swapChain) {
+        g_resources.format != description.Format || g_resources.swapChain != swapChain ||
+        g_resources.bufferCount != bufferCount ||
+        g_resources.backBuffers.size() != bufferCount) {
         reset_render_resources();
-        if (!initialize_render_resources(swapChain, device.Get(), context.Get(), backBuffer.Get(), description)) {
+        if (!initialize_render_resources(
+                swapChain, device.Get(), context.Get(), bufferCount, description)) {
             reset_render_resources();
             return;
         }
     }
+    if (activeIndex >= g_resources.backBuffers.size()) return;
 
-    DXGI_SWAP_CHAIN_DESC swapDescription{};
-    if (SUCCEEDED(swapChain->GetDesc(&swapDescription)) && swapDescription.OutputWindow) {
-        hook_game_window(swapDescription.OutputWindow);
-    }
+    BackBufferLayer& layer = g_resources.backBuffers[activeIndex];
+    if (layer.backBuffer.Get() != activeBackBuffer.Get()) return;
+
     Settings value;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); value = g_settings; }
     ComPtr<ID3DDeviceContextState> previousState;
-    g_resources.context1->SwapDeviceContextState(
+    const HRESULT stateResult = g_resources.context1->SwapDeviceContextState(
         g_resources.overlayState.Get(), &previousState);
-    if (!previousState) return;
+    if (FAILED(stateResult) || !previousState) return;
 
-    // Save the original frame only after the game's render-target state is isolated.
+    // Preserve the game frame to a buffer-specific shader input once the
+    // context state is isolated from the game's bound render targets.
     if (value.enabled) {
-        g_resources.context->CopyResource(g_resources.copyTexture.Get(), backBuffer.Get());
+        g_resources.context->CopyResource(layer.copyTexture.Get(), activeBackBuffer.Get());
     }
 
     if (value.enabled) {
@@ -915,7 +971,7 @@ void render_frame(IDXGISwapChain* swapChain) {
         viewport.MaxDepth = 1.0f;
         g_resources.context->RSSetViewports(1, &viewport);
         g_resources.context->RSSetState(g_resources.rasterizer.Get());
-        ID3D11RenderTargetView* renderTarget = g_resources.backBufferView.Get();
+        ID3D11RenderTargetView* renderTarget = layer.renderTargetView.Get();
         g_resources.context->OMSetRenderTargets(1, &renderTarget, nullptr);
         g_resources.context->OMSetBlendState(g_resources.blend.Get(), nullptr, 0xFFFFFFFF);
         g_resources.context->OMSetDepthStencilState(g_resources.depthStencil.Get(), 0);
@@ -923,7 +979,7 @@ void render_frame(IDXGISwapChain* swapChain) {
         g_resources.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         g_resources.context->VSSetShader(g_resources.vertexShader.Get(), nullptr, 0);
         g_resources.context->PSSetShader(g_resources.pixelShader.Get(), nullptr, 0);
-        ID3D11ShaderResourceView* sourceView = g_resources.sourceView.Get();
+        ID3D11ShaderResourceView* sourceView = layer.sourceView.Get();
         g_resources.context->PSSetShaderResources(0, 1, &sourceView);
         ID3D11SamplerState* sampler = g_resources.sampler.Get();
         g_resources.context->PSSetSamplers(0, 1, &sampler);
@@ -933,7 +989,7 @@ void render_frame(IDXGISwapChain* swapChain) {
         ID3D11ShaderResourceView* nullView = nullptr;
         g_resources.context->PSSetShaderResources(0, 1, &nullView);
     }
-    draw_menu();
+    draw_menu(layer);
     g_resources.context1->SwapDeviceContextState(previousState.Get(), nullptr);
 }
 
