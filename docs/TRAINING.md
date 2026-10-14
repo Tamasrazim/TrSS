@@ -45,7 +45,7 @@ Each entry must explicitly include all six keys. \`low_res\` is the rendered inp
 
 For a non-reset frame, \`history\` must be an RGB image aligned to the high-resolution target and already reprojected into the current view. \`history_valid\` must be an image mask or \`.npy\` array at target resolution, with values in [0, 1]. It marks pixels where warped history is trustworthy, including disocclusion handling. If there is no valid previous frame, both fields must explicitly be \`null\`; the dataset uses a zero history tensor with a zero validity mask for that reset case only. Depth and motion are never fabricated by the loader.
 
-Create separate training and validation manifests. Split by scene or capture sequence rather than randomly splitting neighboring frames, otherwise almost identical frames can leak across the two sets. Use original renders and asset packs whose licences permit dataset creation and model training; keep their sources and licences in an accompanying provenance file.
+Create separate training and validation manifests. Split by scene or capture sequence rather than randomly splitting neighboring frames, otherwise almost identical frames can leak across the two sets. Before training, TrSS also rejects any exact low-resolution input frame or target frame reused across the two manifests. This catches direct file reuse, but it cannot detect near-duplicate frames saved under different paths; scene-level separation remains necessary. Use original renders and asset packs whose licences permit dataset creation and model training; keep their sources and licences in an accompanying provenance file.
 
 ## Start training
 
@@ -61,7 +61,7 @@ Begin with a small dataset and a few epochs to confirm the pipeline runs, then s
 
 Every completed epoch atomically updates \`checkpoint-last.pt\`, so an interruption while writing cannot leave the previous checkpoint half-written. The checkpoint keeps model weights, AdamW state, progress history, random crop state, and the training sample-shuffle state.
 
-Resume with the same manifests and model dimensions; the checkpoint verifies the training/validation manifest paths and motion scale to prevent accidental dataset/preprocessing changes:
+Resume with the same manifests, model dimensions, batch size, patch size, BF16 setting, and motion scale. The checkpoint verifies those run settings (as well as the manifest paths) so a changed batch or crop configuration cannot silently continue an incompatible run. Increasing the target epoch count is expected when continuing training. The guard checks manifest paths, not the contents of files at those paths, so keep the dataset immutable during a run:
 
 \`\`\`powershell
 python -m trss.training.train --train-manifest data/train.jsonl --validation-manifest data/validation.jsonl --output-dir models/trss-quality --device xpu --channels 48 --blocks 10 --context-blocks 4 --patch-size 128 --batch-size 1 --epochs 100 --amp --resume models/trss-quality/checkpoint-last.pt
