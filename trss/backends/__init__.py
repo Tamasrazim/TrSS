@@ -1,1 +1,1 @@
-"""Hardware inference backends used by TRSS."""
+"""Hardware inference backends used by TrSS."""

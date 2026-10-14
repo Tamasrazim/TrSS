@@ -1,6 +1,6 @@
-# TRSS engine architecture
+# TrSS engine architecture
 
-TRSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
+TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 12 GB is the first validation target. Python owns orchestration, explicit tensor contracts, model execution, input validation, temporal state, diagnostics, and tests. A pinned Intel Xe2 Vulkan/XMX research backend is vendored under `vendor/dlss-nr-intel/` and connected through the experimental offline `xmx-frame` command. The native route is not yet hardware-validated, and the first-party live game-capture hook remains unimplemented. This project is an engine, not a separate UI prototype.
 
 ## Components in the repository
 
@@ -19,7 +19,7 @@ TRSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 
 
 `trss devices` reports the actual IDs and names OpenVINO exposes. `--device ARC` is intentionally strict: it selects an Intel Arc-named GPU only if that is unambiguous. When multiple devices identify as Arc, pass an exact ID such as `GPU.1`. CPU devices are not accepted as substitutes for a GPU. This prevents a hybrid system from accidentally running on the integrated adapter or CPU while presenting the result as B580 performance.
 
-The separate vendored Vulkan runtime applies the same fail-closed principle. With no override, it requires exactly one Vulkan adapter name containing `Arc`. Set `TRSS_VULKAN_DEVICE` to a more specific name substring only when it uniquely identifies the intended Arc adapter; an explicit override that matches a non-Arc device fails before Vulkan device creation. This selection code is source-level hardening; physical Vulkan startup is not yet part of Python CI.
+The separate vendored Vulkan runtime applies the same fail-closed principle. With no override, it requires exactly one Vulkan adapter name containing `Arc`. Set `TrSS_VULKAN_DEVICE` to a more specific name substring only when it uniquely identifies the intended Arc adapter; an explicit override that matches a non-Arc device fails before Vulkan device creation. This selection code is source-level hardening; physical Vulkan startup is not yet part of Python CI.
 
 The Windows/Linux driver and OpenVINO GPU plugin are system requirements. A successful CPU-only CI run is not hardware validation.
 

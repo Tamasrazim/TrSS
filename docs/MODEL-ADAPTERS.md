@@ -1,6 +1,6 @@
 # Model-specific input adapters
 
-TRSS cannot infer the meaning of an arbitrary model tensor from its name. A port called "depth" may contain linear distance, device-space Z, reversed-Z, normalized depth, or something else. Motion vectors can use different units and sign conventions. Color tensors can be RGB/BGR, linear or display-encoded, and scaled differently. The adapter specification records the selected model's real contract.
+TrSS cannot infer the meaning of an arbitrary model tensor from its name. A port called "depth" may contain linear distance, device-space Z, reversed-Z, normalized depth, or something else. Motion vectors can use different units and sign conventions. Color tensors can be RGB/BGR, linear or display-encoded, and scaled differently. The adapter specification records the selected model's real contract.
 
 ## Template
 
@@ -28,7 +28,7 @@ An optional root-level preview_output section may declare one direct RGB/RGBA ou
       "channel_order": "RGB"
     }
 
-The port name must exactly match a model output. The output must be rank four with batch size 1 and three or four color channels. Feature planes and packed neural heads are rejected; they need a model-specific composition function. If the model has a direct image output, this declaration lets TRSS save a preview while still preserving every raw output tensor.
+The port name must exactly match a model output. The output must be rank four with batch size 1 and three or four color channels. Feature planes and packed neural heads are rejected; they need a model-specific composition function. If the model has a direct image output, this declaration lets TrSS save a preview while still preserving every raw output tensor.
 
 The engine uses the model's static width and height when available. Dynamic spatial dimensions use the supplied buffer size. The adapter refuses channel-count or static-shape mismatches rather than inventing channels.
 
@@ -55,7 +55,7 @@ The current render-frame command is an offline validation path, not a game hook.
       --iterations 10 ^
       --report "logs\frame-0001.json"
 
-Every argument is local. Preview/history export is optional and requires a direct RGB preview_output declaration in the spec. The preview is normalized to RGB and resized to the source frame dimensions. The history file is H×W×3 float32 in [0, 1]; configure the next frame's history binding source_range as [0, 1] unless a model-specific transform says otherwise. Omit a buffer option only when the model's spec does not require that source. If the model requires depth, motion, noise, history, or conditioning and it is not supplied, TRSS stops with an error instead of making one up.
+Every argument is local. Preview/history export is optional and requires a direct RGB preview_output declaration in the spec. The preview is normalized to RGB and resized to the source frame dimensions. The history file is H×W×3 float32 in [0, 1]; configure the next frame's history binding source_range as [0, 1] unless a model-specific transform says otherwise. Omit a buffer option only when the model's spec does not require that source. If the model requires depth, motion, noise, history, or conditioning and it is not supplied, TrSS stops with an error instead of making one up.
 
 Array inputs are numeric NumPy .npy files loaded with object deserialization disabled. Typical source shapes are:
 
@@ -76,4 +76,4 @@ The command reports preprocessing, inference, end-to-end timing, compile timing,
 
 ## DLSS-NR boundary
 
-The generic adapter is useful plumbing, not a compatible implementation of NVIDIA's neural-rendering contract by itself. The Intel-targeted open-source research project describes a much more specialized graph, weight layout, auxiliary-feature assembly, temporal behavior, and GPU compute path. Before claiming compatibility, TRSS still needs the exact legal model/weights and exact feature preprocessing and output composition, plus hardware validation. The project will not scrape proprietary model files or silently bundle extracted weights.
+The generic adapter is useful plumbing, not a compatible implementation of NVIDIA's neural-rendering contract by itself. The Intel-targeted open-source research project describes a much more specialized graph, weight layout, auxiliary-feature assembly, temporal behavior, and GPU compute path. Before claiming compatibility, TrSS still needs the exact legal model/weights and exact feature preprocessing and output composition, plus hardware validation. The project will not scrape proprietary model files or silently bundle extracted weights.

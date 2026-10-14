@@ -119,7 +119,7 @@ def resolve_device(core: Any, requested: str) -> str:
 
     if not requested.upper().startswith("GPU"):
         raise BackendUnavailable(
-            f"Device {requested!r} is not a GPU. TRSS refuses CPU fallback; "
+            f"Device {requested!r} is not a GPU. TrSS refuses CPU fallback; "
             "choose ARC or an explicit GPU.X ID."
         )
 

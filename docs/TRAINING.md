@@ -1,10 +1,10 @@
-# Training the first-party TRSS model
+# Training the first-party TrSS model
 
-TRSS now has an original, trainable scale-2 reconstruction architecture plus a paired-frame training pipeline. **It has no trained weights yet.** Training only begins once the user supplies a valid dataset created from scenes and assets licensed for the intended use.
+TrSS now has an original, trainable scale-2 reconstruction architecture plus a paired-frame training pipeline. **It has no trained weights yet.** Training only begins once the user supplies a valid dataset created from scenes and assets licensed for the intended use.
 
 ## Install the training runtime
 
-For Intel Arc on a supported Windows 11 or Linux setup, install the official PyTorch XPU wheels and then TRSS. Check Intel's current driver/runtime prerequisites before training:
+For Intel Arc on a supported Windows 11 or Linux setup, install the official PyTorch XPU wheels and then TrSS. Check Intel's current driver/runtime prerequisites before training:
 
 ```powershell
 python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
@@ -21,14 +21,14 @@ CPU training is much slower. Verify the selected device before a long run; `--de
 
 ## Model contract
 
-`TRSSTemporalSR` consumes ten low-resolution input channels:
+`TrSSTemporalSR` consumes ten low-resolution input channels:
 
 | Channels | Content | Contract |
 |---|---|---|
 | 0–2 | Current RGB | Display-encoded RGB, [0, 1] |
 | 3 | Depth | Real depth buffer, normalized [0, 1] with a documented encoding |
 | 4–5 | Motion | HWC input array of pixel displacement per frame; divided by `--motion-scale-px` and bounded to [-1, 1] |
-| 6–8 | Previous output | Previous TRSS/reference output already reprojected into the current view, then downsampled |
+| 6–8 | Previous output | Previous TrSS/reference output already reprojected into the current view, then downsampled |
 | 9 | History-validity mask | Real mask in [0, 1]; zero means the corresponding history must not be used |
 
 The model outputs a four-channel head at exactly 2x input width and height: RGB residuals plus a temporal blend gate. The output compositor adds the learned residual to a bicubic base and blends in history only where the supplied validity mask allows it. This is an initial architecture to benchmark, not a claim of DLSS equivalence or production quality.

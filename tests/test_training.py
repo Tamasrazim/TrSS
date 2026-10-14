@@ -1,4 +1,4 @@
-"""CPU tests for the first-party TRSS training model and dataset."""
+"""CPU tests for the first-party TrSS training model and dataset."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from PIL import Image
 
 torch = pytest.importorskip("torch")
 
-from trss.training.data import TRSSFrameDataset
-from trss.training.model import TRSSTemporalSR, compose_prediction, model_size_report
+from trss.training.data import TrSSFrameDataset
+from trss.training.model import TrSSTemporalSR, compose_prediction, model_size_report
 
 
 def _write_rgb(path: Path, height: int, width: int, value: int) -> None:
@@ -40,7 +40,7 @@ def _make_dataset_files(tmp_path: Path) -> Path:
 
 
 def test_model_output_is_double_size_and_starts_as_neutral_upscale():
-    model = TRSSTemporalSR(channels=16, blocks=2, context_blocks=1)
+    model = TrSSTemporalSR(channels=16, blocks=2, context_blocks=1)
     features = torch.rand(1, 10, 8, 10)
     current = torch.rand(1, 3, 8, 10)
     history = torch.rand(1, 3, 16, 20)
@@ -57,7 +57,7 @@ def test_model_output_is_double_size_and_starts_as_neutral_upscale():
 
 
 def test_model_rejects_wrong_feature_count_and_backpropagates():
-    model = TRSSTemporalSR(channels=16, blocks=2, context_blocks=0)
+    model = TrSSTemporalSR(channels=16, blocks=2, context_blocks=0)
     with pytest.raises(ValueError, match="feature channels"):
         model(torch.rand(1, 9, 8, 8))
 
@@ -74,7 +74,7 @@ def test_model_rejects_wrong_feature_count_and_backpropagates():
 
 def test_frame_dataset_builds_ten_channels_without_faking_temporal_history(tmp_path):
     manifest = _make_dataset_files(tmp_path)
-    sample = TRSSFrameDataset(manifest)[0]
+    sample = TrSSFrameDataset(manifest)[0]
     assert sample["features"].shape == (10, 4, 6)
     assert sample["target"].shape == (3, 8, 12)
     assert sample["history"].shape == (3, 8, 12)

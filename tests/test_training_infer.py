@@ -12,7 +12,7 @@ from PIL import Image
 torch = pytest.importorskip("torch")
 
 from trss.training.infer import run_frame
-from trss.training.model import MODEL_FORMAT, TRSSTemporalSR
+from trss.training.model import MODEL_FORMAT, TrSSTemporalSR
 
 
 def _save_rgb(path: Path, height: int, width: int, value: int) -> None:
@@ -22,7 +22,7 @@ def _save_rgb(path: Path, height: int, width: int, value: int) -> None:
 
 
 def test_offline_inference_loads_checkpoint_writes_double_size_and_reports(tmp_path):
-    model = TRSSTemporalSR(channels=16, blocks=2, context_blocks=1)
+    model = TrSSTemporalSR(channels=16, blocks=2, context_blocks=1)
     checkpoint = tmp_path / "test-checkpoint.pt"
     torch.save(
         {

@@ -1,4 +1,4 @@
-"""Load and validate the local JSONL manifest for TRSS training pairs.
+"""Load and validate the local JSONL manifest for TrSS training pairs.
 
 This module intentionally uses only the Python standard library, so manifest
 errors can be checked without installing PyTorch or loading image data.

@@ -1,4 +1,4 @@
-"""Paired-frame dataset for the first-party TRSS training architecture."""
+"""Paired-frame dataset for the first-party TrSS training architecture."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def _read_mask(path: Path, height: int, width: int) -> np.ndarray:
     return np.ascontiguousarray(mask[None, ...], dtype=np.float32)
 
 
-class TRSSFrameDataset(Dataset[dict[str, torch.Tensor]]):
+class TrSSFrameDataset(Dataset[dict[str, torch.Tensor]]):
     """Load aligned low/high-resolution frames and real renderer auxiliary buffers."""
 
     def __init__(

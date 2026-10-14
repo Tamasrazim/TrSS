@@ -1,18 +1,18 @@
-# TRSS
+# TrSS
 
 **Tamasrazim's Real-time Scene Synthesis**
 
-TRSS is an experimental, local-first neural-rendering research engine targeting Intel Arc GPUs, with the Arc B580 12 GB as its first hardware target. The long-term goal is photorealistic neural appearance reconstruction: learning to improve lighting, materials, fine detail, and temporal stability. Super-resolution is an optional component, not the entire product.
+TrSS is an experimental, local-first neural-rendering research engine targeting Intel Arc GPUs, with the Arc B580 12 GB as its first hardware target. The long-term goal is photorealistic neural appearance reconstruction: learning to improve lighting, materials, fine detail, and temporal stability. Super-resolution is an optional component, not the entire product.
 
-TRSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, and experimental Vulkan/XMX research backend.
+TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, and experimental Vulkan/XMX research backend.
 
 > **Current status:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. The training pipeline remains in the repository, but no trained weights or dataset are bundled. The native backend still uses a separate fixed research graph, and there is no live-game capture hook or completed physical B580 validation.
 
-TRSS is independent research software and is not affiliated with, endorsed by, or a product of Intel or NVIDIA.
+TrSS is independent research software and is not affiliated with, endorsed by, or a product of Intel or NVIDIA.
 
 **Suggested GitHub repository description**
 
-> TRSS (Tamasrazim's Real-time Scene Synthesis) is an experimental, local-first neural-rendering engine targeting Intel Arc GPUs, with a first-party PyTorch training pipeline and Vulkan/XMX research backend. Photorealistic appearance reconstruction is the goal; the current model is a baseline, not a finished renderer.
+> TrSS (Tamasrazim's Real-time Scene Synthesis) is an experimental, local-first neural-rendering engine targeting Intel Arc GPUs, with a first-party PyTorch training pipeline and Vulkan/XMX research backend. Photorealistic appearance reconstruction is the goal; the current model is a baseline, not a finished renderer.
 
 ## Project progress
 
@@ -49,7 +49,7 @@ This is independent research software, not an Intel or NVIDIA product. It does n
 - **Specialized HNet-style frame contract:** `trss/rendering/hnet.py` packs the documented 16-channel feature tensor, deterministic noise, exact staged FP16 color scaling, network field padding, and the four-channel residual/temporal-gate composition. `hnet-frame` connects that adapter to a supplied, shape-compatible OpenVINO model.
 - **Experimental native XMX bridge:** `xmx-frame` connects the vendored Intel Xe2 Vulkan/XMX frame runner to the same feature and output-head contract. It checks for a compiled native library and required shaders, refuses non-Arc devices, accepts only a compatible fully-logical safetensors weight file, and reports native execution and whole-frame timings.
 - **Temporal history safety:** previous outputs can be kept between frames, but are invalidated after camera cuts, scene/resolution changes, frame-order gaps, or stale timestamps.
-- **First-party TRSS training model:** a trainable 10-channel, 2x temporal reconstruction network, strict JSONL paired-frame dataset loader, BF16-capable PyTorch training loop, parameter-size reporting, checkpoints, and CPU CI tests. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
+- **First-party TrSS training model:** a trainable 10-channel, 2x temporal reconstruction network, strict JSONL paired-frame dataset loader, BF16-capable PyTorch training loop, parameter-size reporting, checkpoints, and CPU CI tests. It has no trained weights yet and is not wired into the fixed-graph native XMX runner.
 - **Automated CPU-side tests:** fake-runtime tests exercise model binding, shape changes, GPU-selection rules, data validation, XMX-frame orchestration, and temporal history. CI builds the vendored native runtime, host helpers, and all runtime SPIR-V shaders; it still does not execute them on an Arc GPU.
 
 The frame and tensor layers are infrastructure for a neural renderer. They are not themselves a trained rendering model, a game capture hook, or proof of support on a physical Arc B580.
@@ -75,7 +75,7 @@ OpenVINO GPU support also depends on a compatible Intel graphics driver and the 
 trss devices
 ```
 
-TRSS prints the device IDs and names it detects. It refuses to claim Arc selection when it can't distinguish an Arc GPU. On a machine with multiple Intel Arc GPUs, pass an explicit device such as `GPU.1`.
+TrSS prints the device IDs and names it detects. It refuses to claim Arc selection when it can't distinguish an Arc GPU. On a machine with multiple Intel Arc GPUs, pass an explicit device such as `GPU.1`.
 
 ### Inspect a model before executing it
 
@@ -83,7 +83,7 @@ TRSS prints the device IDs and names it detects. It refuses to claim Arc selecti
 trss inspect --model "models\your-model.onnx"
 ```
 
-The command shows every named input and output, its shape, and its precision. Do this before preparing tensors; TRSS intentionally does not invent preprocessing semantics for unknown models.
+The command shows every named input and output, its shape, and its precision. Do this before preparing tensors; TrSS intentionally does not invent preprocessing semantics for unknown models.
 
 ### Run a simple image-to-image model
 
@@ -124,7 +124,7 @@ trss hnet-frame --model "models\your-hnet-model.onnx" --color "frames\input.png"
 
 The command refuses incompatible input/output shapes rather than pretending any rank-four network is the expected graph. A supplied model must also have matching weights, input preprocessing, head output semantics, and legal terms. The report's timing separates model inference from the whole offline frame path; neither is in-game FPS. Previous history is optional for the first frame and, when provided, must be an RGB HWC `.npy` array in the 0..1 range.
 
-### Train the original TRSS reconstruction model
+### Train the original TrSS reconstruction model
 
 The first-party model and training contract are documented in [docs/TRAINING.md](docs/TRAINING.md). PyTorch's official Intel GPU wheels are needed for training on an Arc card; the regular runtime install does not include PyTorch.
 
@@ -140,7 +140,7 @@ This requires your own paired, legally usable renders plus real depth, motion an
 
 ### Run the experimental native Intel Arc XMX frame path
 
-This path uses the vendored Vulkan/XMX graph directly, not OpenVINO. It requires the Vulkan SDK/loader, a GCC or Clang toolchain that supports `_Float16` (MSVC is not supported by the vendored native CMake project), the generated SPIR-V shaders, and a compatible legal `fully_logical=true` safetensors file. TRSS does not include trained weights, proprietary DLLs, or extracted vendor parameters.
+This path uses the vendored Vulkan/XMX graph directly, not OpenVINO. It requires the Vulkan SDK/loader, a GCC or Clang toolchain that supports `_Float16` (MSVC is not supported by the vendored native CMake project), the generated SPIR-V shaders, and a compatible legal `fully_logical=true` safetensors file. TrSS does not include trained weights, proprietary DLLs, or extracted vendor parameters.
 
 From a shell where CMake can find the Vulkan SDK and the GCC/Clang toolchain, build the native source out of tree:
 
@@ -168,12 +168,12 @@ CI checks syntax and the CPU-only test suite. CI does not have the target Arc B5
 ## Still missing for actual neural rendering
 
 1. **A verified model-specific neural-rendering model.** The generic JSON adapter and a specialized HNet-style 16-to-4 frame contract are implemented, but the actual graph and legally usable parameters are not bundled. Exact tensor semantics, weights, precision, temporal behavior, and all model-specific post-processing still require verification against a compatible model.
-2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with TRSS.
+2. **Model parameters.** Source code and trained weights are different things. No NVIDIA DLL, extracted proprietary weights, or trained model is bundled with TrSS.
 3. **A real graphics-frame source.** No desktop/game capture hook is implemented yet, and the engine currently receives local images or explicit arrays instead of frames from a running game.
 4. **Temporal reprojection and composition.** The current history store invalidates unsafe history but does not calculate motion-vector reprojection or the network's exact history blend.
-5. **Live GPU integration.** There is no TRSS Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
-6. **Physical hardware validation.** No TRSS run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
-7. **End-to-end native validation.** The `xmx-frame` command now connects TRSS's frame contract to the pinned Vulkan/XMX runner, but CI only compiles the native C runtime and tests the bridge with a fake frame runner. The full shader build, a compatible licensed logical-weight file, and an actual Arc B580 render are still required to validate the path.
+5. **Live GPU integration.** There is no TrSS Vulkan layer/game hook yet; `hnet-frame` only processes local frame files through a supplied model.
+6. **Physical hardware validation.** No TrSS run on the user's Arc B580 has yet established model compatibility, visual quality, latency, or in-game performance.
+7. **End-to-end native validation.** The `xmx-frame` command now connects TrSS's frame contract to the pinned Vulkan/XMX runner, but CI only compiles the native C runtime and tests the bridge with a fake frame runner. The full shader build, a compatible licensed logical-weight file, and an actual Arc B580 render are still required to validate the path.
 
 A generic image model may demonstrate the inference pipeline, but it is not a stand-in for a game-conditioned neural renderer. The immediate engineering path is to finish the native XMX execution bridge and model-loader contract, validate it with a legally usable model artifact, then measure real-frame latency and visual quality on the physical B580.
 
@@ -183,9 +183,9 @@ A generic image model may demonstrate the inference pipeline, but it is not a st
 - [OpenDLSS-NR](https://github.com/aloshdenny/open-dlss) — another model implementation whose documented GPU requirements are NVIDIA-specific; not a direct B580 backend.
 - [OpenVINO](https://github.com/openvinotoolkit/openvino) — the current generic inference runtime.
 
-The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active TRSS rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `TRSS_VULKAN_DEVICE` only when its device-name substring uniquely identifies an Arc-named Vulkan adapter.
+The Intel Xe2 XMX runtime source is pinned and vendored under [`vendor/dlss-nr-intel/`](vendor/dlss-nr-intel/UPSTREAM.md) with its Apache-2.0 license and notices. It is not yet the active TrSS rendering backend; it requires a local native build and compatible logical weights. Adapter selection refuses ambiguous Arc matches and accepts `TrSS_VULKAN_DEVICE` only when its device-name substring uniquely identifies an Arc-named Vulkan adapter.
 
-These are technical references, not opaque third-party applications wrapped by TRSS. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
+These are technical references, not opaque third-party applications wrapped by TrSS. See [third-party research and licensing boundaries](docs/THIRD-PARTY-RESEARCH.md). Any adopted code, model, shader, or dataset must have its exact version and license recorded before it becomes a dependency.
 
 ## Development rules
 
