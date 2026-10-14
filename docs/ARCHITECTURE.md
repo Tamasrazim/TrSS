@@ -9,6 +9,7 @@ TrSS is a Python-first neural graphics engine targeting Intel Arc. The Arc B580 
 - `trss/engine.py`: single-image convenience engine, model inspection, shape validation, GPU compilation, output conversion, and timings.
 - `trss/tensor_engine.py`: generic multi-input/multi-output tensor engine. Named inputs are validated, dynamic tensor shapes are specialized, compilation is reused for repeated shapes, and copied outputs are reported with compile/inference/total timings.
 - `trss/rendering/frame.py`: a validated `FramePacket` for color and optional real auxiliary buffers, plus temporal output history with reset rules.
+- `trss/rendering/sequence.py`: manifest-driven offline frame processing. It resolves paths relative to a JSONL manifest, validates each frame's actual buffers, runs the explicit adapter, saves RGB previews atomically, and carries history only across continuous frames.
 - `trss/cli.py`: `devices`, `inspect`, `infer`, `infer-tensors`, `render-frame`, `hnet-frame`, experimental `xmx-frame`, and `graphics-probe` (with `dx12-probe` retained as an alias).
 - `trss/backends/xmx_engine.py`: optional bridge for loading local logical weights, selecting an Arc-named Vulkan device, retaining device-side weights/frame buffers, and running the native 16-to-4 frame graph.
 - `trss/backends/directx12_backend.py`: Windows-only launcher that selects the native D3D9, D3D11, or D3D12 probe; hardware mode never silently falls back to software.
@@ -72,6 +73,14 @@ The generic tensor engine does not know what a tensor means. It does not generat
 Missing inputs remain missing. The package never fills a depth or motion tensor with made-up values.
 
 `TemporalHistory` stores the last valid processed RGB output and can return a copy to the next frame. It resets on camera cuts, size/scene changes, non-increasing frame IDs, dropped frame sequence IDs, non-monotonic timestamps, and long gaps. This is history lifecycle management only: there is no reprojection, optical-flow estimate, or model-specific blend in this class.
+
+## Offline frame-sequence processing
+
+`trss render-sequence` is the first end-to-end loop that connects the frame packet, adapter, inference engine, RGB output contract, and temporal history state in one run. The manifest is JSON Lines: each non-empty line defines `frame_id`, `timestamp`, and a `color` image, plus optional paths for actual depth, motion, noise, conditioning, and an explicit `initial_history` seed. Relative paths are resolved from the manifest's folder and all input paths are checked before the model is initialized.
+
+The adapter must declare `preview_output`, because only a declared RGB interpretation can safely become the next frame's history. When a frame is continuous, the previous validated normalized RGB output is passed to a history-bound model. When history is unavailable—startup, camera cut, scene change, resolution change, frame-ID gap/order issue, or stale/non-monotonic time—a model that requires history must get an explicit matching `initial_history` file for that row; TrSS does not silently substitute zeros or another invented tensor. An explicit seed is HWC RGB float data in the [0, 1] range and must match that frame's dimensions.
+
+Each output PNG is written through a temporary file and renamed into place. A JSON report records per-frame input sources, history/reset status, preprocessing, compile, inference, and total wall timings. Sequence processing does not mean live capture, reprojection, or real-time performance; depth and motion still must come from a documented source, and motion-vector reprojection remains model-specific.
 
 ## Inference lifecycle
 
