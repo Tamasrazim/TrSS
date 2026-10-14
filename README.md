@@ -108,7 +108,7 @@ This is a first-party D3D11/DXGI prototype with a successful CI compile and inst
 
 ### Compare independent Baseline and TrSS recording runs
 
-Record a baseline with the runtime absent, then install TrSS and record the same game scene again. In the recorder's post-capture review, set the two profile labels to exactly `Baseline` and `TrSS`, use the **same experiment group**, and verify identical game graphics settings. Repeat both runs for stable results. The recorder does not need to connect to TrSS rendering.
+Record a baseline with the runtime absent, then install TrSS and record the same game scene again. In the recorder's post-capture review, set the first profile label to `Baseline` and the second to a precise renderer/preset label such as `TrSS - Cinematic`. Use the **same experiment group** and verify identical in-game graphics settings. Repeat both runs for stable results. The recorder does not need to connect to TrSS rendering.
 
 ~~~powershell
 trss-compare-performance --matrix "$env:LOCALAPPDATA\TrSS\GameLibrary\matrix\game-matrix.jsonl" --output-dir "logs\performance-comparison" --baseline-profile "Baseline" --trss-profile "TrSS" --require-exact
