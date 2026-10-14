@@ -401,7 +401,7 @@ def evaluate_checkpoint(
     scene_accumulators: dict[str, dict[str, float]] = {}
     frame_results: list[dict[str, Any]] = []
     try:
-        for sample_number, sample_index in enumerate(selected_indices, start=1):
+        for sample_index in selected_indices:
             manifest_row = rows[sample_index]
             source = metadata.get(int(manifest_row.get("line", 0)), {})
             scene_id = str(source.get("scene_id", "scene-unknown"))
