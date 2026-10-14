@@ -1,8 +1,9 @@
-"""Run an end-to-end RGB-only experiment using ordinary local gameplay recordings.
+"""Run an end-to-end RGB-only experiment using local gameplay recordings.
 
-The experiment decodes video files, trains a separate spatial model, evaluates it
-against bicubic interpolation, and publishes reports/gallery together. It never
-attaches to a game process and it does not fabricate renderer auxiliary buffers.
+The experiment imports video files or native TrSS desktop-capture sessions, trains
+a separate spatial model, evaluates it against bicubic interpolation, and publishes
+reports/gallery together. It never attaches to a game process and does not fabricate
+renderer auxiliary buffers.
 """
 from __future__ import annotations
 
@@ -184,7 +185,7 @@ def run_gameplay_experiment(
                 "checkpoint_sha256": evaluation_report["checkpoint_sha256"],
             },
             "limits": [
-                "Only ordinary video files are decoded; no game process access or injection occurs.",
+                "Local gameplay videos and native TrSS desktop-capture sessions are read; no game process access or injection occurs.",
                 "The RGB target is a recorded video frame, and its input is made by downsampling that frame.",
                 "This is a spatial 2x baseline, not temporal reconstruction with game depth, motion, or history.",
                 "The metrics describe the supplied recordings and do not prove live-game quality, latency, FPS, or Arc B580 performance.",
