@@ -306,7 +306,11 @@ void assign_float(Settings& to, const Settings& from, const SliderDefinition& de
 void set_preset(const std::wstring& name) {
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
+        // Switching looks must not silently turn effects back on if the user
+        // disabled the renderer to compare the untouched frame.
+        const bool effectsWereEnabled = g_settings.enabled;
         apply_preset_values(g_settings, name);
+        g_settings.enabled = effectsWereEnabled;
         g_enabled = g_settings.enabled;
     }
     save_settings_file();
