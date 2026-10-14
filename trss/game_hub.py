@@ -1157,6 +1157,7 @@ class CaptureSession:
     closing: bool = False
     status: str = "recording"
     error: str | None = None
+    stop_reason: str = "user_stop"
 
 
 def _append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -2043,6 +2044,7 @@ class GameHubApp:
             session = self.active_capture
             if not session:
                 return
+            session.stop_reason = reason
             session.stop_event.set()
         self.set_status("Stopping collection and packaging the saved sample…")
 
@@ -2092,9 +2094,18 @@ class GameHubApp:
                     ))
                 try:
                     free = shutil.disk_usage(session.folder).free
-                    if free < 256 * 1024 * 1024:
+                    # ZIP creation temporarily needs room for another copy of the bundle.
+                    # Stop early enough to preserve both the PNGs and the finished archive.
+                    captured_bytes = sum(
+                        row_path.stat().st_size
+                        for row_path in (session.folder / "frames").glob("*.png")
+                    )
+                    if free < captured_bytes + 512 * 1024 * 1024:
                         session.status = "interrupted"
-                        session.error = "Capture stopped because less than 256 MB of free disk space remained."
+                        session.error = (
+                            "Capture stopped to preserve enough free space to package the "
+                            "collected files safely. Choose a larger or emptier drive for longer runs."
+                        )
                         break
                 except OSError:
                     pass
@@ -2108,6 +2119,8 @@ class GameHubApp:
             session.status = "interrupted"
             session.error = f"Unexpected capture failure ({type(exc).__name__})."
 
+        if session.status == "recording":
+            session.status = "completed"
         with self.capture_lock:
             with session.lock:
                 session.closing = True
@@ -2132,7 +2145,7 @@ class GameHubApp:
                 "started_utc": session.started_utc,
                 "ended_utc": utc_now_text(),
                 "status": session.status,
-                "termination_reason": session.error or "user_stop",
+                "termination_reason": session.error or session.stop_reason,
                 "elapsed_seconds": elapsed,
                 "sample_rate_requested_fps": session.sample_rate,
                 "captured_frames": len(session.frame_rows),
@@ -2192,6 +2205,8 @@ class GameHubApp:
 
     @staticmethod
     def _capture_game_window(hwnd: int) -> Image.Image:
+        if _foreground_hwnd() != hwnd:
+            raise CaptureError("The game lost focus before the screenshot started.")
         bounds = _window_client_bounds(hwnd)
         try:
             image = ImageGrab.grab(bbox=bounds, all_screens=True)
@@ -2200,6 +2215,8 @@ class GameHubApp:
         expected = (bounds[2] - bounds[0], bounds[3] - bounds[1])
         if image.size != expected:
             raise CaptureError("The game window changed size or Windows display scaling made the capture inconsistent.")
+        if _foreground_hwnd() != hwnd:
+            raise CaptureError("The game lost focus during screenshot capture; the frame was discarded.")
         return image.convert("RGB")
 
     def _poll_hotkeys(self) -> None:
