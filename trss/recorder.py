@@ -21,17 +21,14 @@ import queue
 import re
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import uuid
 import zipfile
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 try:
-    from PIL import Image, ImageGrab, ImageTk
+    from PIL import Image, ImageGrab
 except ImportError as exc:  # Make a missing install helpful for people running source.
     raise SystemExit(
         "TrSS Data Recorder needs Pillow. Install the project with: python -m pip install -e ."
@@ -64,7 +61,7 @@ class WindowChoice:
     @property
     def label(self) -> str:
         # The title is for selection only; it is intentionally never written to a bundle.
-        return f"{self.title[:90]}  ·  {self.width} × {self.height}"
+        return f"{self.title[:90]}  ·  {self.width} × {self.height}  ·  #{self.hwnd:x}"
 
 
 class RECT(ctypes.Structure):
@@ -97,6 +94,15 @@ def _window_client_bounds(hwnd: int) -> tuple[int, int, int, int]:
         raise CaptureError("Privacy-safe application-window capture is currently Windows-only.")
 
     user32 = ctypes.windll.user32
+    # Declare pointer-sized handle signatures so 64-bit HWND values are not truncated.
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.restype = wintypes.BOOL
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
+    user32.GetClientRect.restype = wintypes.BOOL
+    user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(POINT)]
+    user32.ClientToScreen.restype = wintypes.BOOL
     client = RECT()
     if not user32.IsWindow(hwnd) or user32.IsIconic(hwnd):
         raise CaptureError("The selected window was closed or minimized.")
@@ -120,6 +126,16 @@ def list_capture_windows(exclude_hwnd: int | None = None) -> list[WindowChoice]:
         return []
 
     user32 = ctypes.windll.user32
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
+    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
     choices: list[WindowChoice] = []
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
@@ -827,6 +843,7 @@ class TrSSRecorderApp:
                 scene_label=scene_label,
                 fps=fps,
                 duration=duration,
+                keep_unpacked=keep_unpacked,
             ),
         )
 
@@ -843,6 +860,7 @@ class TrSSRecorderApp:
         scene_label: str | None,
         fps: int,
         duration: int,
+        keep_unpacked: bool,
     ) -> None:
         # Minimize before the first frame so this tool never records its own interface.
         self.root.iconify()
@@ -864,6 +882,7 @@ class TrSSRecorderApp:
                 "scene_label": scene_label,
                 "fps": fps,
                 "duration": duration,
+                "keep_unpacked": keep_unpacked,
             },
             name="TrSS-Recorder-Capture",
             daemon=True,
@@ -883,6 +902,7 @@ class TrSSRecorderApp:
         scene_label: str | None,
         fps: int,
         duration: int,
+        keep_unpacked: bool,
     ) -> None:
         del output_root  # The output path is represented by the session and ZIP locations.
         frames_dir = session_dir / FRAME_DIRECTORY
@@ -1119,6 +1139,16 @@ class TrSSRecorderApp:
 
 def main() -> None:
     """Launch the desktop recorder; all capture operations remain on the local machine."""
+    global tk, ttk, filedialog, messagebox, ImageTk
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox, ttk
+        from PIL import ImageTk
+    except ImportError as exc:
+        raise SystemExit(
+            "The desktop interface needs Python with Tkinter enabled. Reinstall Python with "
+            "the Tcl/Tk feature, then run the recorder again."
+        ) from exc
     _enable_dpi_awareness()
     root = tk.Tk()
     TrSSRecorderApp(root)
