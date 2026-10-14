@@ -197,10 +197,12 @@ def _run_epoch(
     for batch in loader:
         # Random crops and augmentation are used only for training. Validation
         # deterministically visits every region of each frame in bounded patches.
+        # Stream validation tiles one at a time; building a list would duplicate
+        # large crops in system RAM for every full-resolution validation frame.
         crops = (
-            [_crop_batch(batch, patch_size, random_crop=True)]
+            (_crop_batch(batch, patch_size, random_crop=True),)
             if training
-            else list(_validation_crops(batch, patch_size))
+            else _validation_crops(batch, patch_size)
         )
 
         for cropped in crops:
@@ -372,6 +374,7 @@ def main() -> int:
     start_epoch = 1
     best_score = float("inf")
     saved_run_config: dict[str, Any] = {}
+    elapsed_before_resume = 0.0
     checkpoint: dict[str, Any] | None = None
 
     if args.resume:
@@ -399,6 +402,7 @@ def main() -> int:
             )
         best_score = float(checkpoint.get("best_score", float("inf")))
         saved_run_config = checkpoint.get("run_config", {})
+        elapsed_before_resume = float(saved_run_config.get("elapsed_seconds", 0.0))
 
         # Do not accidentally continue on a different dataset or input encoding.
         if saved_run_config:
@@ -436,6 +440,9 @@ def main() -> int:
                     row for row in old_report.get("history", [])
                     if int(row.get("epoch", 0)) <= completed_epoch
                 ]
+                elapsed_before_resume = float(
+                    old_report.get("elapsed_seconds", elapsed_before_resume)
+                )
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 history = []
 
@@ -466,6 +473,7 @@ def main() -> int:
         "train_manifest": str(train_path),
         "validation_manifest": str(validation_path) if validation_path else None,
         "history": history,
+        "elapsed_seconds_before_resume": elapsed_before_resume,
         "resumed_from": str(args.resume.expanduser().resolve()) if args.resume else None,
     }
 
