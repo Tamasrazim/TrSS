@@ -11,6 +11,7 @@ from PIL import Image
 
 torch = pytest.importorskip("torch")
 
+from trss.training import train as training
 from trss.training.data import TrSSFrameDataset
 from trss.training.model import TrSSTemporalSR, compose_prediction, model_size_report
 
@@ -81,3 +82,81 @@ def test_frame_dataset_builds_ten_channels_without_faking_temporal_history(tmp_p
     assert sample["history_valid"].shape == (1, 8, 12)
     assert torch.count_nonzero(sample["history"]) == 0
     assert torch.count_nonzero(sample["history_valid"]) == 0
+
+
+def test_random_flip_reflects_motion_vectors_with_the_images(monkeypatch):
+    batch = {
+        "features": torch.zeros(2, 10, 4, 6),
+        "low_res": torch.zeros(2, 3, 4, 6),
+        "target": torch.zeros(2, 3, 8, 12),
+        "history": torch.zeros(2, 3, 8, 12),
+        "history_valid": torch.ones(2, 1, 8, 12),
+    }
+    batch["features"][:, 4] = 1.0
+    batch["features"][:, 5] = 2.0
+    randint_values = iter((0, 0, 1, 2))
+    random_values = iter((0.0, 0.0, 1.0, 1.0))
+    monkeypatch.setattr(training.random, "randint", lambda low, high: next(randint_values))
+    monkeypatch.setattr(training.random, "random", lambda: next(random_values))
+
+    cropped = training._crop_batch(batch, 2, random_crop=True)
+
+    assert cropped["features"].shape == (2, 10, 2, 2)
+    assert torch.all(cropped["features"][0, 4] == -1.0)
+    assert torch.all(cropped["features"][0, 5] == -2.0)
+    assert torch.all(cropped["features"][1, 4] == 1.0)
+    assert torch.all(cropped["features"][1, 5] == 2.0)
+
+
+def test_validation_tiles_cover_full_frame_edges():
+    assert training._tile_starts(4, 4) == [0]
+    assert training._tile_starts(10, 4) == [0, 4, 6]
+    assert training._tile_starts(11, 4) == [0, 4, 7]
+
+
+def test_training_can_resume_from_last_checkpoint(tmp_path, monkeypatch):
+    manifest = _make_dataset_files(tmp_path)
+    output = tmp_path / "weights"
+    args = [
+        "train",
+        "--train-manifest", str(manifest),
+        "--output-dir", str(output),
+        "--device", "cpu",
+        "--channels", "8",
+        "--blocks", "1",
+        "--context-blocks", "0",
+        "--patch-size", "4",
+        "--epochs", "2",
+        "--seed", "9",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    # Simulate a stop after epoch one has safely written checkpoint-last.pt.
+    real_run_epoch = training._run_epoch
+    calls = {"count": 0}
+
+    def interrupt_before_second_epoch(*run_args, **run_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("simulated interruption")
+        return real_run_epoch(*run_args, **run_kwargs)
+
+    monkeypatch.setattr(training, "_run_epoch", interrupt_before_second_epoch)
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        training.main()
+
+    checkpoint_path = output / "checkpoint-last.pt"
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    assert checkpoint["epoch"] == 1
+    assert "optimizer_state_dict" in checkpoint
+
+    monkeypatch.setattr(training, "_run_epoch", real_run_epoch)
+    monkeypatch.setattr(
+        "sys.argv",
+        args + ["--resume", str(checkpoint_path)],
+    )
+    assert training.main() == 0
+
+    report = json.loads((output / "training-report.json").read_text(encoding="utf-8"))
+    assert [row["epoch"] for row in report["history"]] == [1, 2]
+    assert (output / "checkpoint-best.pt").is_file()
