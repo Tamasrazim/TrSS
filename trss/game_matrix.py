@@ -452,7 +452,7 @@ def build_matrix_row(
         field for field, value in values.items()
         if value is not None
         and field not in literal_numeric_fields
-        and re.fullmatch(r"[+-]?\\d+(?:\\.\\d+)?", value.strip())
+        and re.fullmatch(r"[+-]?\d+(?:\.\d+)?", value.strip())
         and sources.get(field) in {"local_game_config", "imported_local_config"}
     ]
     verified = bool(graphics_profile.get("verified_in_game"))
