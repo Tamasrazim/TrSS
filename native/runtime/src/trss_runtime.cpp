@@ -1047,6 +1047,8 @@ HRESULT finish_factory_call(HRESULT hr, REFIID iid, void** factory) {
     return hr;
 }
 
+void set_menu_cursor(bool visible);
+
 LRESULT CALLBACK runtime_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     const bool visible = g_menuVisible.load();
     if (message == WM_KEYDOWN && wParam == VK_PRIOR &&
