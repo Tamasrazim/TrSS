@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 APP_NAME = "TrSS Runtime Installer"
+IS_WINDOWS = os.name == "nt"
 APP_VERSION = "0.1.0"
 RUNTIME_DLL_NAME = "dxgi.dll"
 CONFIG_NAME = "TrSS.ini"
@@ -132,7 +133,7 @@ def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dic
     """Install the compiled shim without overwriting existing graphics layers."""
     exe = Path(game_executable).expanduser().resolve()
     dll = Path(runtime_dll).expanduser().resolve()
-    if os.name != "nt":
+    if not IS_WINDOWS:
         raise RuntimeInstallError("The live runtime installer only supports Windows.")
     if exe.suffix.casefold() != ".exe" or not exe.is_file():
         raise RuntimeInstallError("Choose an existing game .exe file.")
