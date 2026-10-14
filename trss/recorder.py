@@ -172,9 +172,25 @@ def list_capture_windows(exclude_hwnd: int | None = None) -> list[WindowChoice]:
     return sorted(choices, key=lambda item: item.title.casefold())
 
 
-def grab_window(hwnd: int) -> Image.Image:
-    """Capture only the selected application's client area, never the whole desktop."""
+def _foreground_window_handle() -> int:
+    """Return the top-level window Windows currently considers active."""
+    if os.name != "nt":
+        return 0
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    active = user32.GetForegroundWindow()
+    return int(active) if active else 0
+
+
+def grab_window(hwnd: int, *, require_foreground: bool = False) -> Image.Image:
+    """Capture the selected window's screen rectangle and reject accidental overlays."""
     bounds = _window_client_bounds(hwnd)
+    if require_foreground and _foreground_window_handle() != int(hwnd):
+        raise CaptureError(
+            "The selected application is no longer the active window. The recorder stopped "
+            "to avoid collecting another window by mistake. Re-select it and start again."
+        )
     try:
         image = ImageGrab.grab(bbox=bounds, all_screens=True)
     except (OSError, RuntimeError) as exc:
@@ -188,6 +204,13 @@ def grab_window(hwnd: int) -> Image.Image:
         raise CaptureError(
             "The captured image size did not match the window. Check Windows display scaling "
             "and try again."
+        )
+    # Focus can change while the screen crop is being read. Discard the frame rather than
+    # include another app's pixels after an Alt+Tab or a pop-up takes over.
+    if require_foreground and _foreground_window_handle() != int(hwnd):
+        raise CaptureError(
+            "Focus changed during capture. This frame was discarded and recording stopped "
+            "to protect against capturing another window."
         )
     return image.convert("RGB")
 
@@ -719,20 +742,37 @@ class TrSSRecorderApp:
         if choice is None:
             messagebox.showwarning(APP_NAME, "Select a visible application window first.")
             return
-        try:
-            frame = grab_window(choice.hwnd)
-        except CaptureError as exc:
-            messagebox.showerror(APP_NAME, str(exc))
-            self.refresh_windows()
-            return
 
-        frame.thumbnail((760, 340), Image.Resampling.LANCZOS)
-        self.preview_photo = ImageTk.PhotoImage(frame)
-        self.preview_label.configure(image=self.preview_photo, text="")
-        self.status_var.set(
-            f"Preview verified: {choice.width} × {choice.height}. "
-            "The raw window title will not be saved."
-        )
+        # A screen crop would show this UI if we captured before minimizing. Switch away,
+        # focus the chosen app, then sample only after the recorder has disappeared.
+        self.status_var.set("Switching to the selected window for a clean preview…")
+        self.root.iconify()
+        try:
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+            user32.SetForegroundWindow.restype = wintypes.BOOL
+            user32.SetForegroundWindow(choice.hwnd)
+        except (AttributeError, OSError):
+            pass
+        self.root.after(500, lambda: self._finish_preview(choice))
+
+    def _finish_preview(self, choice: WindowChoice) -> None:
+        try:
+            frame = grab_window(choice.hwnd, require_foreground=True)
+            frame.thumbnail((760, 340), Image.Resampling.LANCZOS)
+            self.preview_photo = ImageTk.PhotoImage(frame)
+            self.preview_label.configure(image=self.preview_photo, text="")
+            self.status_var.set(
+                f"Preview verified: {choice.width} × {choice.height}. "
+                "Only the active selected window will be sampled; its title is not saved."
+            )
+        except CaptureError as exc:
+            self.status_var.set("Preview was not captured.")
+            messagebox.showerror(APP_NAME, str(exc))
+        finally:
+            self.root.deiconify()
+            self.root.state("normal")
+            self.root.lift()
 
     def choose_output(self) -> None:
         folder = filedialog.askdirectory(
@@ -933,7 +973,7 @@ class TrSSRecorderApp:
                     termination_reason = "duration_limit"
                     break
 
-                frame = grab_window(choice.hwnd)
+                frame = grab_window(choice.hwnd, require_foreground=True)
                 now = time.monotonic()
                 if started_at is None:
                     started_at = now
