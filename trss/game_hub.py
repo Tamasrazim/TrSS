@@ -119,6 +119,40 @@ LOCAL_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Loca
 APP_DATA = LOCAL_ROOT / "TrSS" / "GameLibrary"
 ICON_CACHE = APP_DATA / "icons"
 LIBRARY_FILE = APP_DATA / "library.json"
+DEFAULT_CAPTURE_ROOT = APP_DATA / "captures"
+CAPTURE_LOCATION_FILE = APP_DATA / "capture-location.json"
+
+
+def load_capture_root(
+    config_file: Path = CAPTURE_LOCATION_FILE,
+    default_root: Path = DEFAULT_CAPTURE_ROOT,
+) -> Path:
+    """Load the user's local capture destination, using the safe default when absent."""
+    try:
+        payload = json.loads(config_file.read_text(encoding="utf-8"))
+        saved = payload.get("capture_root") if isinstance(payload, dict) else None
+        if isinstance(saved, str) and saved.strip():
+            candidate = Path(saved).expanduser()
+            if candidate.is_absolute():
+                return candidate
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return default_root
+
+
+def save_capture_root(folder: str | Path, config_file: Path = CAPTURE_LOCATION_FILE) -> Path:
+    """Persist a selected output folder locally with an atomic configuration-file swap."""
+    root = Path(folder).expanduser()
+    if not root.is_absolute() or not root.is_dir():
+        raise ValueError("Choose an existing absolute capture folder.")
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = config_file.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps({"schema_version": 1, "capture_root": str(root)}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(config_file)
+    return root
 
 
 @dataclass
@@ -1568,6 +1602,7 @@ class GameHubApp:
         self.scan_stop = threading.Event()
         self.closing = False
         self.games, self.custom_roots = load_library()
+        self.capture_root = load_capture_root()
         self.cards: list[GameCard] = []
         self.selected_game: GameEntry | None = None
         self.active_capture: CaptureSession | None = None
@@ -1713,6 +1748,12 @@ class GameHubApp:
             footer_controls, textvariable=self.capture_rate_var,
             state="readonly", values=CAPTURE_RATES, width=4,
         ).pack(side="left", padx=(0, 12))
+        ttk.Button(
+            footer_controls, text="Capture folder", command=self.choose_capture_folder
+        ).pack(side="left", padx=(0, 7))
+        ttk.Button(
+            footer_controls, text="Open captures", command=self.open_capture_folder
+        ).pack(side="left", padx=(0, 7))
         ttk.Button(footer_controls, text="Show performance", command=self.show_overlay).pack(side="left")
 
         consent = tk.Frame(self.shell, bg=BACKGROUND)
@@ -1757,6 +1798,34 @@ class GameHubApp:
 
     def set_status(self, value: str) -> None:
         self.status_var.set(value)
+
+    def choose_capture_folder(self) -> None:
+        """Choose the local drive and folder that will hold future capture bundles."""
+        try:
+            self.capture_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        selected = filedialog.askdirectory(
+            title="Choose the folder for TrSS capture bundles",
+            initialdir=str(self.capture_root if self.capture_root.is_dir() else Path.home()),
+            mustexist=True,
+        )
+        if not selected:
+            return
+        try:
+            self.capture_root = save_capture_root(selected)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror(APP_NAME, f"Could not save the capture location: {exc}")
+            return
+        self.set_status(f"Future capture bundles will be saved to {self.capture_root}")
+
+    def open_capture_folder(self) -> None:
+        """Open the active local capture destination in File Explorer."""
+        try:
+            self.capture_root.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(self.capture_root))
+        except (OSError, AttributeError) as exc:
+            messagebox.showerror(APP_NAME, f"Cannot open the capture folder: {exc}")
 
     def open_matrix_folder(self) -> None:
         """Open the local CSV/JSONL matrix without uploading any collected data."""
@@ -2086,12 +2155,16 @@ class GameHubApp:
             self.set_status("Focus the selected game first, then press Ctrl + Alt + F8 again.")
             return
 
-        output_root = APP_DATA / "captures"
+        output_root = self.capture_root
         try:
             output_root.mkdir(parents=True, exist_ok=True)
             free = shutil.disk_usage(output_root).free
             if free < 500 * 1024 * 1024:
-                messagebox.showwarning(APP_NAME, "Less than 500 MB is free in the capture location. Choose another drive in the library before recording.")
+                messagebox.showwarning(
+                    APP_NAME,
+                    "Less than 500 MB is free in the selected capture folder. "
+                    "Use Capture folder to choose another drive before recording.",
+                )
                 return
         except OSError as exc:
             messagebox.showerror(APP_NAME, f"Cannot prepare local capture storage: {exc}")
