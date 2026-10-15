@@ -43,8 +43,8 @@ jobs:
       - name: Check installer syntax
         run: python -m compileall -q trss/runtime_installer.py tests/test_runtime_installer.py
 
-      - name: Test safe install and uninstall behavior
-        run: python -m pytest -q tests/test_runtime_installer.py
+      - name: Test safe install, uninstall, and menu hotkey behavior
+        run: python -m pytest -q tests/test_runtime_installer.py tests/test_runtime_hotkey_source.py
 
       - name: Package one-file Windows installer with the first-party DLL embedded
         run: >
