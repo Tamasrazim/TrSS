@@ -5,11 +5,15 @@ import json
 from pathlib import Path
 import zipfile
 
+import pytest
+
 from trss.recorder import (
+    CaptureError,
     _bundle_readme,
     create_bundle,
     make_sequence_row,
     safe_label,
+    verify_bundle_archive,
 )
 
 
@@ -75,6 +79,9 @@ def test_bundle_is_valid_and_checksums_match(tmp_path: Path) -> None:
     assert result == zip_path
     assert session_dir.is_dir()
     assert zipfile.is_zipfile(zip_path)
+    verification = verify_bundle_archive(zip_path)
+    assert verification["verified"] is True
+    assert verification["files_verified"] >= 5
     with zipfile.ZipFile(zip_path, "r") as archive:
         assert archive.testzip() is None
         names = set(archive.namelist())
@@ -124,3 +131,63 @@ def test_bundle_readme_is_honest_about_missing_render_buffers() -> None:
     assert "not a ready-to-train" in text.lower()
     assert "motion vectors" in text.lower()
     assert "does not upload" in text.lower()
+
+
+
+def test_game_library_bundle_includes_and_verifies_performance_jsonl(tmp_path: Path) -> None:
+    session_dir = tmp_path / "performance-session"
+    (session_dir / "frames").mkdir(parents=True)
+    (session_dir / "frames" / "frame-000000.png").write_bytes(b"frame")
+    zip_path = tmp_path / "performance-session.zip"
+    sample = {
+        "timestamp_utc": "2026-10-15T00:00:00Z",
+        "game_cpu_percent": 21.5,
+        "game_gpu_3d_percent": None,
+        "fps": None,
+        "fps_source": "not implemented",
+    }
+
+    create_bundle(
+        session_dir=session_dir,
+        zip_path=zip_path,
+        metadata={"session": {"id": "performance-session"}},
+        system_metadata={},
+        sequence_rows=[],
+        keep_unpacked=True,
+        performance_rows=[sample],
+    )
+
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        payload = archive.read(
+            "performance-session/performance.jsonl"
+        ).decode("utf-8").strip()
+    assert json.loads(payload) == sample
+    assert verify_bundle_archive(zip_path)["verified"] is True
+
+
+def test_bundle_verification_detects_content_changed_after_packaging(tmp_path: Path) -> None:
+    session_dir = tmp_path / "tamper-session"
+    (session_dir / "frames").mkdir(parents=True)
+    (session_dir / "frames" / "frame-000000.png").write_bytes(b"original")
+    zip_path = tmp_path / "tamper-session.zip"
+    create_bundle(
+        session_dir=session_dir,
+        zip_path=zip_path,
+        metadata={"session": {"id": "tamper-session"}},
+        system_metadata={},
+        sequence_rows=[],
+        keep_unpacked=True,
+    )
+
+    with zipfile.ZipFile(zip_path, "r") as original:
+        entries = {
+            name: original.read(name)
+            for name in original.namelist()
+        }
+    entries["tamper-session/frames/frame-000000.png"] = b"changed bytes"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as edited:
+        for name, data in entries.items():
+            edited.writestr(name, data)
+
+    with pytest.raises(CaptureError, match="SHA-256 verification failed"):
+        verify_bundle_archive(zip_path)
