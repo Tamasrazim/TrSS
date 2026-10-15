@@ -148,8 +148,6 @@ def test_cli_rejects_capability_check_for_d3d11():
         cli._run_dx12_probe(parsed)
 
 
-
-
 def test_explicit_missing_executable_fails_instead_of_searching_other_paths(tmp_path):
     missing = tmp_path / "not-built.exe"
     with pytest.raises(FileNotFoundError, match="not-built.exe"):
