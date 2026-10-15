@@ -12,8 +12,10 @@ from trss.game_hub import (
     _name_key,
     _parse_vdf_pairs,
     choose_game_executable,
+    load_capture_root,
     parse_steam_manifest,
     parse_steam_libraries,
+    save_capture_root,
 )
 
 
@@ -99,3 +101,33 @@ def test_metric_display_never_fabricates_missing_values() -> None:
     assert _friendly_metric(52.25, "%") == "52.2%"
     assert _name_key("Red Dead Redemption 2") == "reddeadredemption2"
 
+
+
+def test_capture_folder_setting_is_saved_and_invalid_paths_fall_back(tmp_path: Path) -> None:
+    destination = tmp_path / "external-drive" / "TrSS"
+    destination.mkdir(parents=True)
+    settings_file = tmp_path / "app-data" / "capture-location.json"
+    default_root = tmp_path / "default-captures"
+
+    assert load_capture_root(settings_file, default_root) == default_root
+    assert save_capture_root(destination, settings_file) == destination
+    assert load_capture_root(settings_file, default_root) == destination
+
+    settings_file.write_text(
+        json.dumps({"schema_version": 1, "capture_root": "relative-folder"}),
+        encoding="utf-8",
+    )
+    assert load_capture_root(settings_file, default_root) == default_root
+
+
+def test_capture_folder_setting_does_not_accept_a_file_as_a_folder(tmp_path: Path) -> None:
+    not_a_folder = tmp_path / "a-file.txt"
+    not_a_folder.write_text("not a directory", encoding="utf-8")
+    settings_file = tmp_path / "app-data" / "capture-location.json"
+
+    try:
+        save_capture_root(not_a_folder, settings_file)
+    except ValueError as exc:
+        assert "existing absolute capture folder" in str(exc)
+    else:
+        raise AssertionError("A file path must not be accepted as the capture directory")
