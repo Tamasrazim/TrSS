@@ -22,6 +22,8 @@ The click-through overlay displays measurements the local Windows system exposes
 4. Press **Ctrl + Alt + F8** again to stop and review the run, or **Ctrl + Alt + F10** to stop early. **Ctrl + Alt + F9** restores the library.
 5. When the recording stops, TrSS restores the library and opens **Graphics Profile / Post-Capture Review**. Check the detected values against the game's own Graphics / Display menu, fill any missing values, add game-specific settings, select the in-game verification checkbox only when you actually checked the menu, and save the profile. The capture is not packaged until this review is saved, so the settings and image data stay attached to the same session.
 
+Use **Capture folder** in the library footer to choose the destination drive. This setting is saved locally for future sessions. **Open captures** opens the active destination in File Explorer; session folders and ZIP bundles are written there.
+
 The collector stops screenshot sampling when the game loses focus, when capture errors occur, or when it must stop to preserve enough free disk space to create a ZIP safely. It does not run in the background after the participant stops it, and it does not upload files.
 
 ## Graphics settings: detection and verification
