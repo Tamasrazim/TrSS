@@ -1,6 +1,6 @@
 # TrSS Game Library & Recorder — Developer README
 
-**My working notes for the recorder, current as of 14 October 2026.** This document records what I have built, what it actually measures, where the implementation lives, and what remains before I can rely on it for serious performance or neural-rendering research.
+**My working notes for the recorder, current as of 15 October 2026.** This document records what I have built, what it actually measures, where the implementation lives, and what remains before I can rely on it for serious performance or neural-rendering research.
 
 ## What I am building
 
@@ -20,7 +20,7 @@ The recorder is deliberately independent of the live TrSS graphics runtime. It c
 | Executable icons | Extracted for local UI; local icon cache |
 | Local performance overlay | Implemented for counters Windows exposes, including CPU, memory and some per-process GPU/VRAM counters |
 | Opt-in screen sampling | Implemented for visible, focused application windows; configured game-library rates are 1, 2, 5, or 10 screenshots per second |
-| Session metadata and ZIP bundle | Implemented, including sequence metadata and SHA-256 hashes |
+| Session metadata and ZIP bundle | Implemented; the Game Library writes timestamped `performance.jsonl` into each bundle, then checks the ZIP CRC and verifies the embedded SHA-256 manifest against every archived file before cleanup |
 | Graphics settings review | Implemented after a capture; recognized config keys can be suggested, then values must be checked against the game's own settings menu for an exact row |
 | Shared graphics matrix | Implemented as local `game-matrix.csv` and `game-matrix.jsonl` files under the Windows local application-data folder |
 | Baseline versus TrSS comparison | Implemented for rows that match game, experiment group, and settings fingerprint; CSV and JSON outputs |
