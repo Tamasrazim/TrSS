@@ -36,7 +36,7 @@ Do not describe screenshot sample rate as game FPS. Do not claim that this recor
 
 | File | Responsibility |
 | --- | --- |
-| `trss/game_hub.py` | Main Game Library window, game discovery and cards, launching, click-through monitoring overlay, capture hotkeys, post-capture graphics review, and participant flow |
+| `trss/game_hub.py` | Main Game Library window, game discovery and cards, launching, click-through monitoring overlay, capture hotkeys, post-capture graphics review, persistent capture-folder selection, and participant flow |
 | `trss/recorder.py` | Window selection, visible client-area capture, lossless PNG frames, per-session metadata, archive assembly, checksums, and the standalone capture window |
 | `trss/game_matrix.py` | Standard graphics-setting schema, allowlisted config parsing, completeness/verification rules, hash-addressed matrix rows, and local matrix persistence |
 | `trss/performance_compare.py` | Reads the JSONL matrix, pairs eligible Baseline/TrSS samples, and writes comparison CSV/JSON without filling missing metrics |
@@ -58,7 +58,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
 ```
 
-Launch the main game library:
+Launch the main game library. Use **Capture folder** in the library footer to select another drive; the destination is saved locally:
 
 ```powershell
 trss-recorder
