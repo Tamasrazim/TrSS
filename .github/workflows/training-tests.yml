@@ -27,7 +27,10 @@ jobs:
           python -m pip install -e ".[test]"
 
       - name: Check Python syntax
-        run: python -m compileall -q trss tests
+        run: python -m compileall -q trss tests scripts
+
+      - name: Validate curated GPU performance dataset
+        run: python scripts/validate_gpu_performance.py
 
       - name: Test model shape, composition, gradients, and dataset contracts
         run: python -m pytest tests/test_training.py tests/test_training_manifest.py tests/test_training_infer.py tests/test_split_manifest.py tests/test_dataset_audit.py tests/test_review_dataset.py
