@@ -45,6 +45,7 @@ def test_api_probe_uses_the_matching_native_executable_name(tmp_path, api, filen
     ("operation", "expected"),
     [
         ("list-devices", ["--list-devices"]),
+        ("capability-check", ["--capability-check"]),
         ("self-test", ["--self-test"]),
         ("warp-self-test", ["--warp-self-test"]),
     ],
@@ -105,6 +106,48 @@ def test_unsupported_api_is_rejected(tmp_path):
             operation="self-test",
             api="opengl",  # type: ignore[arg-type]
         )
+
+def test_d3d12_capability_check_is_not_offered_for_other_apis(tmp_path):
+    for api in ("d3d9", "d3d11"):
+        with pytest.raises(ValueError, match="supports Direct3D 12 only"):
+            build_probe_command(
+                tmp_path / "probe.exe",
+                operation="capability-check",
+                api=api,
+            )
+
+
+def test_cli_d3d12_capability_check_passes_adapter_selection(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        cli,
+        "run_dx12_probe",
+        lambda **kwargs: captured.update(kwargs) or 0,
+    )
+    parsed = cli._build_parser().parse_args([
+        "graphics-probe",
+        "--api", "d3d12",
+        "--capability-check",
+        "--device-substring", "Intel Arc B580",
+    ])
+
+    assert cli._run_dx12_probe(parsed) == 0
+    assert captured == {
+        "operation": "capability-check",
+        "executable": None,
+        "device_substring": "Intel Arc B580",
+        "api": "d3d12",
+    }
+
+
+def test_cli_rejects_capability_check_for_d3d11():
+    parsed = cli._build_parser().parse_args([
+        "graphics-probe", "--api", "d3d11", "--capability-check"
+    ])
+    with pytest.raises(ValueError, match="supports Direct3D 12 only"):
+        cli._run_dx12_probe(parsed)
+
+
 
 
 def test_explicit_missing_executable_fails_instead_of_searching_other_paths(tmp_path):
