@@ -43,6 +43,16 @@ DURATION_OPTIONS = ("5", "10", "15", "30")
 STOP_HOTKEY_TEXT = "Ctrl + Alt + F10"
 HOTKEY_VK = 0x79  # F10. Checked while the capture window is minimized.
 FRAME_DIRECTORY = "frames"
+MIN_PACKAGING_FREE_BYTES = 512 * 1024 * 1024
+
+
+def _has_packaging_headroom(
+    free_bytes: int,
+    captured_bytes: int,
+    reserve_bytes: int = MIN_PACKAGING_FREE_BYTES,
+) -> bool:
+    """Return whether the disk can hold the ZIP while retaining the original PNGs."""
+    return int(free_bytes) >= max(0, int(captured_bytes)) + max(0, int(reserve_bytes))
 
 
 class CaptureError(RuntimeError):
@@ -1057,6 +1067,7 @@ class TrSSRecorderApp:
         frame_interval = 1.0 / sample_rate
         next_deadline = time.monotonic() + 1.5  # Give focus/minimize time to settle.
         dropped_slots = 0
+        captured_bytes = 0
         captured_width: int | None = None
         captured_height: int | None = None
         status = "completed"
@@ -1092,6 +1103,7 @@ class TrSSRecorderApp:
                 frame_name = f"frame-{len(rows):06d}.png"
                 frame_path = frames_dir / frame_name
                 frame.save(frame_path, format="PNG", optimize=False)
+                captured_bytes += frame_path.stat().st_size
                 rows.append(
                     make_sequence_row(
                         frame_id=len(rows),
@@ -1113,6 +1125,24 @@ class TrSSRecorderApp:
                             },
                         )
                     )
+
+                # A stored ZIP needs another copy of the captured PNGs. Stop
+                # before the drive fills, leaving the originals and room for packaging.
+                try:
+                    free_bytes = shutil.disk_usage(session_dir).free
+                    if not _has_packaging_headroom(free_bytes, captured_bytes):
+                        status = "interrupted"
+                        termination_reason = "low_disk_space"
+                        error_summary = (
+                            "Capture stopped early to preserve enough free disk space to "
+                            "package the saved frames safely. Choose a larger or emptier "
+                            "drive for longer sessions."
+                        )
+                        break
+                except OSError:
+                    # Keep the capture going if Windows temporarily cannot report free space;
+                    # actual frame-write errors are still handled by the capture error path.
+                    pass
 
                 next_deadline += frame_interval
                 now_after_write = time.monotonic()
