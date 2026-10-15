@@ -94,6 +94,9 @@ def test_icon_color_uses_the_executable_icon_png(tmp_path: Path) -> None:
     Image.new("RGB", (64, 64), (35, 155, 215)).save(icon_path)
 
     assert _hex_rgb(str(icon_path)) == "#239bd7"
+    # Games without an icon must use the fallback instead of crashing the UI.
+    assert _hex_rgb(None) == "#aeb8c8"
+    assert _hex_rgb("") == "#aeb8c8"
     assert _hex_rgb(str(tmp_path / "missing.png")) == "#aeb8c8"
 
 
