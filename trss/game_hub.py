@@ -2664,7 +2664,7 @@ class GameHubApp:
         )
 
         metadata = {
-            "schema_version": "3.0",
+            "schema_version": "3.1",
             "application": {"name": APP_NAME, "version": APP_VERSION},
             "session": {
                 "id": session.session_id,
