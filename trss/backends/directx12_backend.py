@@ -77,8 +77,10 @@ def build_probe_command(
     """Build a predictable argv list; tests can verify it without Windows or a GPU."""
     if api not in _DIRECTX_EXECUTABLES:
         raise ValueError(f"Unsupported DirectX API: {api!r}")
-    if operation not in ("list-devices", "self-test", "warp-self-test"):
-        raise ValueError(f"Unsupported Direct3D 12 probe operation: {operation!r}")
+    if operation not in (
+        "list-devices", "capability-check", "self-test", "warp-self-test"
+    ):
+        raise ValueError(f"Unsupported Direct3D probe operation: {operation!r}")
     if api == "d3d9" and operation == "warp-self-test":
         raise ValueError("D3D9 has no WARP compute test; select a physical D3D9 adapter.")
     if device_substring is not None:
