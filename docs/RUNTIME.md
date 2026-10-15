@@ -8,7 +8,9 @@ This is not ReShade code or a wrapper around another graphics tool. The runtime,
 
 The first native target is **compatible Direct3D 11 games that create a DXGI swap chain through the ordinary DXGI factory path**, using a single-sample 8-bit BGRA/RGBA back buffer. This is a narrow starting point, not universal game support. D3D9, D3D12, Vulkan, OpenGL, unusual/custom swap-chain formats, some fullscreen modes, and games whose graphics path bypasses the intercepted DXGI entry points are not supported by this build. A game may fail to show the menu even if it launches normally.
 
-The current shader applies first-party **image post-processing** to the game's presented image. It is not yet using the PyTorch model for live inference. The following features are separate milestones: native D3D12/Vulkan integration, model checkpoint loading in the in-game renderer, real depth and motion-vector acquisition, temporal reprojection, more effects, and physical testing across game/API combinations. CI proves that the current C++ code compiles and the installer tests pass; it does not prove that a real game supports the hook or that the runtime is safe or visually correct on every driver.
+The current shader applies first-party **image post-processing** to the game's presented image. It is not yet using the PyTorch model for live inference.
+
+**Important crash-recovery rule:** the installed `dxgi.dll` lives beside the game executable and is loaded by Windows when that executable starts. Closing the TrSS Game Library does not disable or unload that DLL. If a game becomes unstable, exit it and use the Runtime Installer's **Uninstall runtime** action for that exact executable before testing the game again. Do not manually delete an unverified `dxgi.dll`, because another graphics tool may own it. The following features are separate milestones: native D3D12/Vulkan integration, model checkpoint loading in the in-game renderer, real depth and motion-vector acquisition, temporal reprojection, more effects, and physical testing across game/API combinations. CI proves that the current C++ code compiles and the installer tests pass; it does not prove that a real game supports the hook or that the runtime is safe or visually correct on every driver.
 
 ## Build and install
 
@@ -17,8 +19,9 @@ The **Build first-party TrSS live runtime** workflow builds both the native dxgi
 1. Launch TrSS-Runtime-Installer.exe.
 2. Choose the actual game executable, not a launcher, shortcut, or setup program.
 3. Confirm that local graphics injection is allowed for that game and that you are not trying to bypass anti-cheat or game protections.
-4. Click **Install runtime**.
-5. Start the game normally. On a supported D3D11/DXGI path, press **Ctrl + Alt + Page Up** to toggle the TrSS menu.
+4. Separately confirm that the specific game uses a compatible **Direct3D 11/DXGI** path. The installer now blocks installation unless this box is checked. Do not select Direct3D 12, Direct3D 9, Vulkan, or OpenGL games; x64 architecture alone does not imply compatibility.
+5. Click **Install runtime**.
+6. Start the game normally. On a supported D3D11/DXGI path, press **Ctrl + Alt + Page Up** to toggle the TrSS menu.
 
 The installer places dxgi.dll beside the chosen executable, creates TrSS.ini, provides starter preset files, and writes a SHA-256 installation manifest. It does **not** overwrite an existing dxgi.dll, because that file may belong to another graphics layer, mod, compatibility shim, or the game itself. Resolve that conflict separately before installing TrSS; the installer will not silently chain-load or replace another tool.
 
@@ -45,7 +48,7 @@ These are TrSS post-processing controls; they do not change the game's internal 
 
 Built-in looks are **Neutral**, **Cinematic**, **Vibrant**, **Clarity**, **Night**, and **Film**. **Save preset** writes the current values to an INI file; **Load preset** imports a TrSS preset file. The runtime reads settings rather than executing preset files as code. Presets are stored under TrSS/Presets beside the game.
 
-If the game starts but the overlay never appears, return to the installer and remove TrSS before troubleshooting. Do not keep an unknown proxy DLL installed in a game folder as an experiment.
+If the game starts but the overlay never appears, or becomes unstable, return to the installer and remove TrSS before troubleshooting. Closing the TrSS launcher is not a rollback: the game-local DLL is still loaded on the next launch until it is uninstalled. Do not keep an unknown proxy DLL installed in a game folder as an experiment.
 
 ## Keep the recorder independent
 

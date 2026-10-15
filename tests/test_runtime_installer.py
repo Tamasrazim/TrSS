@@ -28,6 +28,16 @@ def _write_pe(
     return path
 
 
+def test_installer_requires_explicit_d3d11_compatibility_confirmation(install_tree) -> None:
+    game_dir, exe, dll = install_tree
+
+    with pytest.raises(installer.RuntimeInstallError, match="compatible Direct3D 11/DXGI"):
+        installer.install_runtime(exe, dll)
+
+    assert not (game_dir / "dxgi.dll").exists()
+    assert not (game_dir / "TrSS.ini").exists()
+
+
 @pytest.fixture
 def install_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(installer, "IS_WINDOWS", True)
@@ -43,7 +53,7 @@ def install_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_installs_first_party_dll_and_creates_settings_and_presets(install_tree) -> None:
     game_dir, exe, dll = install_tree
 
-    result = installer.install_runtime(exe, dll)
+    result = installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     target = game_dir / "dxgi.dll"
     assert target.read_bytes() == dll.read_bytes()
@@ -68,7 +78,7 @@ def test_installer_requires_a_64_bit_game_executable(install_tree) -> None:
     _write_pe(exe, machine=0x14C, optional_magic=0x10B, payload=b"x86-game")
 
     with pytest.raises(installer.RuntimeInstallError, match="x64-only"):
-        installer.install_runtime(exe, dll)
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     assert not (game_dir / "dxgi.dll").exists()
     assert not (game_dir / "TrSS.ini").exists()
@@ -79,7 +89,7 @@ def test_installer_rejects_a_non_pe_runtime_dll(install_tree) -> None:
     dll.write_bytes(b"not-a-Windows-library")
 
     with pytest.raises(installer.RuntimeInstallError, match="not a valid Windows PE"):
-        installer.install_runtime(exe, dll)
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     assert not (game_dir / "dxgi.dll").exists()
 
@@ -90,7 +100,7 @@ def test_refuses_to_overwrite_existing_dxgi_proxy(install_tree) -> None:
     existing.write_bytes(b"some-other-graphics-layer")
 
     with pytest.raises(installer.RuntimeInstallError, match="will not overwrite"):
-        installer.install_runtime(exe, dll)
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     assert existing.read_bytes() == b"some-other-graphics-layer"
     assert not (game_dir / "TrSS.ini").exists()
@@ -102,7 +112,7 @@ def test_refuses_to_overwrite_unidentified_config(install_tree) -> None:
     config.write_text("[OtherTool]\nValue=leave-me-alone\n", encoding="utf-8")
 
     with pytest.raises(installer.RuntimeInstallError, match="will leave it untouched"):
-        installer.install_runtime(exe, dll)
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     assert config.read_text(encoding="utf-8") == "[OtherTool]\nValue=leave-me-alone\n"
     assert not (game_dir / "dxgi.dll").exists()
@@ -110,7 +120,7 @@ def test_refuses_to_overwrite_unidentified_config(install_tree) -> None:
 
 def test_uninstall_removes_only_verified_dll_and_preserves_user_settings(install_tree) -> None:
     game_dir, exe, dll = install_tree
-    installer.install_runtime(exe, dll)
+    installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
     config = game_dir / "TrSS.ini"
     config.write_text(config.read_text(encoding="utf-8") + "\n[User]\nCustomField=keep\n", encoding="utf-8")
     preset = game_dir / "TrSS" / "Presets" / "Custom.ini"
@@ -140,7 +150,7 @@ def test_failed_manifest_write_rolls_back_the_partial_install(
     monkeypatch.setattr(Path, "write_text", fail_only_on_manifest)
 
     with pytest.raises(OSError, match="simulated disk write failure"):
-        installer.install_runtime(exe, dll)
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
 
     assert not (game_dir / "dxgi.dll").exists()
     assert not (game_dir / "dxgi.dll.trss-installing").exists()
@@ -151,7 +161,7 @@ def test_failed_manifest_write_rolls_back_the_partial_install(
 
 def test_uninstall_refuses_if_installed_dll_was_replaced(install_tree) -> None:
     game_dir, exe, dll = install_tree
-    installer.install_runtime(exe, dll)
+    installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
     target = game_dir / "dxgi.dll"
     target.write_bytes(b"changed-after-install")
 

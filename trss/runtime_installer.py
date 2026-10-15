@@ -158,8 +158,13 @@ def preset_text(name: str, settings: dict[str, float]) -> str:
     return "\n".join(lines)
 
 
-def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dict[str, Any]:
-    """Install the compiled shim without overwriting existing graphics layers."""
+def install_runtime(
+    game_executable: str | Path,
+    runtime_dll: str | Path,
+    *,
+    d3d11_compatibility_confirmed: bool = False,
+) -> dict[str, Any]:
+    """Install the shim only after the user verifies this game is in the D3D11 support scope."""
     exe = Path(game_executable).expanduser().resolve()
     dll = Path(runtime_dll).expanduser().resolve()
     if not IS_WINDOWS:
@@ -174,6 +179,13 @@ def install_runtime(game_executable: str | Path, runtime_dll: str | Path) -> dic
         )
     if pe_architecture(dll) != "x64":
         raise RuntimeInstallError("The compiled TrSS dxgi.dll is not an x64 Windows library.")
+    if not d3d11_compatibility_confirmed:
+        raise RuntimeInstallError(
+            "Installation is blocked until you confirm that this game uses a compatible "
+            "Direct3D 11/DXGI path. This prototype does not support Direct3D 12, Direct3D 9, "
+            "Vulkan, or OpenGL. Assassin's Creed Black Flag Resynced uses DirectX 12 and "
+            "must not be installed with this build."
+        )
 
     game_dir = exe.parent
     runtime_target = game_dir / RUNTIME_DLL_NAME
@@ -325,6 +337,8 @@ class RuntimeInstallerApp:
         self.root.configure(bg="#0b0e12")
         self.game_path = tk.StringVar(master=root)
         self.scope_confirm = tk.BooleanVar(master=root, value=False)
+        # The user must separately confirm API compatibility; x64 alone is not enough.
+        self.api_confirm = tk.BooleanVar(master=root, value=False)
         self.status = tk.StringVar(master=root, value="Select a game executable to begin.")
         self._build_ui()
 
@@ -377,7 +391,16 @@ class RuntimeInstallerApp:
             ),
             variable=self.scope_confirm,
         )
-        consent.pack(anchor="w", pady=(2, 12))
+        consent.pack(anchor="w", pady=(2, 6))
+        api_consent = ttk.Checkbutton(
+            outer,
+            text=(
+                "I verified this game uses compatible Direct3D 11/DXGI, not Direct3D 12, "
+                "Direct3D 9, Vulkan, or OpenGL."
+            ),
+            variable=self.api_confirm,
+        )
+        api_consent.pack(anchor="w", pady=(0, 12))
 
         actions = tk.Frame(outer, bg="#0b0e12")
         actions.pack(fill="x")
@@ -414,6 +437,16 @@ class RuntimeInstallerApp:
                 parent=self.root,
             )
             return False
+        if not self.api_confirm.get():
+            messagebox.showwarning(
+                APP_NAME,
+                "This prototype is only for compatible Direct3D 11/DXGI games. "
+                "Direct3D 12, Direct3D 9, Vulkan and OpenGL are unsupported. "
+                "For example, Assassin's Creed Black Flag Resynced uses DirectX 12. "
+                "Do not install TrSS in that game.",
+                parent=self.root,
+            )
+            return False
         return True
 
     def _install(self) -> None:
@@ -428,7 +461,10 @@ class RuntimeInstallerApp:
             )
             return
         try:
-            result = install_runtime(self.game_path.get(), runtime)
+            result = install_runtime(
+                self.game_path.get(), runtime,
+                d3d11_compatibility_confirmed=self.api_confirm.get(),
+            )
         except (OSError, RuntimeInstallError, ValueError) as exc:
             messagebox.showerror(APP_NAME, str(exc), parent=self.root)
             self.status.set("Installation stopped without overwriting an existing graphics DLL.")

@@ -1042,6 +1042,12 @@ HRESULT STDMETHODCALLTYPE hook_resize_buffers(
 
 void patch_swap_chain(IDXGISwapChain* swapChain) {
     if (!swapChain) return;
+
+    // DXGI also serves D3D12 games. Do not hook their swap chains: this renderer
+    // requires an actual ID3D11Device, and a D3D12 command queue is not compatible.
+    ComPtr<ID3D11Device> d3d11Device;
+    if (FAILED(swapChain->GetDevice(IID_PPV_ARGS(&d3d11Device))) || !d3d11Device) return;
+
     void** table = *reinterpret_cast<void***>(swapChain);
     patch_entry(swapChain, 8, reinterpret_cast<void*>(&hook_present), reinterpret_cast<void**>(&g_realPresent));
     patch_entry(swapChain, 13, reinterpret_cast<void*>(&hook_resize_buffers), reinterpret_cast<void**>(&g_realResizeBuffers));
