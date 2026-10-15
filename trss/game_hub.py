@@ -58,7 +58,7 @@ from trss.recorder import (
 
 
 APP_NAME = "TrSS Game Library"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 STOP_CAPTURE_HOTKEY = "Ctrl + Alt + F8"
 SHOW_LIBRARY_HOTKEY = "Ctrl + Alt + F9"
 STOP_NOW_HOTKEY = "Ctrl + Alt + F10"
