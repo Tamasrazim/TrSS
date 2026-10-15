@@ -36,8 +36,8 @@ except ImportError as exc:  # Make a missing install helpful for people running 
 
 
 APP_NAME = "TrSS Data Recorder"
-APP_VERSION = "0.1.0"
-CONSENT_POLICY_VERSION = "2026-10-14"
+APP_VERSION = "0.2.0"
+CONSENT_POLICY_VERSION = "2026-10-15"
 SAMPLE_RATE_OPTIONS = ("5", "10", "15", "30")
 DURATION_OPTIONS = ("5", "10", "15", "30")
 STOP_HOTKEY_TEXT = "Ctrl + Alt + F10"
@@ -1118,7 +1118,7 @@ class TrSSRecorderApp:
                 now_after_write = time.monotonic()
                 if now_after_write > next_deadline:
                     # Skip missed schedule slots; do not duplicate the previous image or
-                    # falsify timestamps to make the capture appear to have reached its FPS.
+                    # falsify timestamps to make the capture appear to have reached its target sample rate.
                     missed = int((now_after_write - next_deadline) // frame_interval) + 1
                     dropped_slots += missed
                     next_deadline += missed * frame_interval
@@ -1164,6 +1164,9 @@ class TrSSRecorderApp:
                 "width": captured_width,
                 "height": captured_height,
                 "requested_sample_rate": sample_rate,
+                "sample_rate_semantics": (
+                    "PNG screenshot samples per second; not application FPS or displayed FPS."
+                ),
                 "duration_limit_seconds": duration,
                 "elapsed_seconds": elapsed_seconds,
                 "observed_sample_rate_from_saved_timestamps": observed_sample_rate,
@@ -1259,7 +1262,7 @@ class TrSSRecorderApp:
                     summary = (
                         f"Capture bundle created and ZIP integrity checked.\n\n"
                         f"Frames: {payload['frames']}\n"
-                        f"Observed capture rate: {payload['observed_sample_rate'] or 'not available'} FPS\n"
+                        f"Observed screenshot rate: {payload['observed_sample_rate'] or 'not available'} samples/s\n"
                         f"Skipped capture slots: {payload['dropped_slots']}\n"
                         f"Status: {payload['status']}\n\n"
                         f"File: {payload['zip_path']}"
