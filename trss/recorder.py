@@ -1149,7 +1149,7 @@ class TrSSRecorderApp:
             else None
         )
         metadata = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "application": {"name": APP_NAME, "version": APP_VERSION},
             "session": {
                 "id": session_id,
