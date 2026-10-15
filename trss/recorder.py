@@ -372,6 +372,91 @@ def _write_checksums(session_dir: Path) -> None:
     checksum_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def verify_bundle_archive(zip_path: Path) -> dict[str, Any]:
+    """Check ZIP structure and verify every file against its SHA-256 manifest.
+
+    The manifest is inside the archive, so verification does not depend on an unpacked
+    session folder being kept. It also rejects duplicate and path-traversal archive names.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            damaged = archive.testzip()
+            if damaged is not None:
+                raise CaptureError(f"The finished ZIP failed its CRC check at {damaged}.")
+
+            file_names = [
+                info.filename for info in archive.infolist()
+                if not info.is_dir()
+            ]
+            if len(file_names) != len(set(file_names)):
+                raise CaptureError("The finished ZIP contains duplicate file entries.")
+            if not file_names or any("/" not in name for name in file_names):
+                raise CaptureError("The ZIP does not contain the expected session folder.")
+
+            roots = {name.split("/", 1)[0] for name in file_names}
+            if len(roots) != 1 or any(
+                name.startswith("/") or "\\" in name
+                or any(part in {"", ".", ".."} for part in name.split("/"))
+                for name in file_names
+            ):
+                raise CaptureError("The ZIP contains an unsafe or unexpected file path.")
+
+            prefix = next(iter(roots)) + "/"
+            checksum_name = prefix + "SHA256SUMS.txt"
+            if file_names.count(checksum_name) != 1:
+                raise CaptureError("The ZIP does not contain one SHA256SUMS.txt manifest.")
+
+            try:
+                manifest_text = archive.read(checksum_name).decode("utf-8")
+            except (UnicodeDecodeError, OSError) as exc:
+                raise CaptureError("The checksum manifest could not be read.") from exc
+
+            checksums: dict[str, str] = {}
+            for line in manifest_text.splitlines():
+                if not line:
+                    continue
+                match = re.fullmatch(r"([0-9a-fA-F]{64})  (.+)", line)
+                if match is None:
+                    raise CaptureError("The checksum manifest contains an invalid entry.")
+                digest, relative_name = match.groups()
+                if (
+                    relative_name.startswith("/")
+                    or "\\" in relative_name
+                    or any(part in {"", ".", ".."} for part in relative_name.split("/"))
+                    or relative_name in checksums
+                ):
+                    raise CaptureError("The checksum manifest contains an unsafe or duplicate path.")
+                checksums[relative_name] = digest.lower()
+
+            archive_files = {
+                name[len(prefix):]
+                for name in file_names
+                if name.startswith(prefix) and name != checksum_name
+            }
+            if len(archive_files) != len(file_names) - 1 or set(checksums) != archive_files:
+                raise CaptureError(
+                    "The checksum manifest does not cover exactly the files in the ZIP."
+                )
+
+            for relative_name, expected_digest in checksums.items():
+                digest = hashlib.sha256()
+                with archive.open(prefix + relative_name, "r") as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(block)
+                if digest.hexdigest() != expected_digest:
+                    raise CaptureError(
+                        f"SHA-256 verification failed for {relative_name}."
+                    )
+
+            return {
+                "verified": True,
+                "files_verified": len(checksums),
+                "checksum_manifest": "SHA256SUMS.txt",
+            }
+    except zipfile.BadZipFile as exc:
+        raise CaptureError("The finished ZIP is not a valid archive.") from exc
+
+
 def _bundle_readme() -> str:
     return (
         "TrSS DATA RECORDER — CAPTURE BUNDLE\n"
@@ -416,6 +501,7 @@ def create_bundle(
     system_metadata: dict[str, Any],
     sequence_rows: list[dict[str, Any]],
     keep_unpacked: bool,
+    performance_rows: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Write reports, hash the files, package them, and verify the ZIP before cleanup."""
     _write_json(session_dir / "metadata.json", metadata)
@@ -423,6 +509,14 @@ def create_bundle(
     with (session_dir / "sequence.jsonl").open("w", encoding="utf-8", newline="\n") as stream:
         for row in sequence_rows:
             stream.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    if performance_rows is not None:
+        with (session_dir / "performance.jsonl").open(
+            "w", encoding="utf-8", newline="\n"
+        ) as stream:
+            for row in performance_rows:
+                stream.write(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
     (session_dir / "README.txt").write_text(_bundle_readme(), encoding="utf-8")
     _write_checksums(session_dir)
 
@@ -433,12 +527,7 @@ def create_bundle(
                 archive_name = f"{session_dir.name}/{path.relative_to(session_dir).as_posix()}"
                 bundle.write(path, archive_name)
 
-        with zipfile.ZipFile(zip_path, "r") as bundle:
-            damaged = bundle.testzip()
-            if damaged is not None:
-                raise CaptureError(
-                    f"The finished ZIP failed its integrity check at {damaged}."
-                )
+        verify_bundle_archive(zip_path)
     except Exception:
         # Never leave a partial ZIP beside a recoverable source folder.
         zip_path.unlink(missing_ok=True)
