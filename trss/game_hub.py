@@ -2559,15 +2559,22 @@ class GameHubApp:
                 frame_name = f"frame-{len(session.frame_rows):08d}.png"
                 frame_path = session.folder / "frames" / frame_name
                 frame.save(frame_path, format="PNG", optimize=False)
-                session.captured_bytes += frame_path.stat().st_size
-                session.frame_rows.append(
-                    make_sequence_row(
-                        frame_id=len(session.frame_rows),
-                        timestamp=elapsed,
-                        scene_id=session.session_id[:12],
-                        color_path=f"frames/{frame_name}",
+                try:
+                    frame_bytes = frame_path.stat().st_size
+                    session.frame_rows.append(
+                        make_sequence_row(
+                            frame_id=len(session.frame_rows),
+                            timestamp=elapsed,
+                            scene_id=session.session_id[:12],
+                            color_path=f"frames/{frame_name}",
+                        )
                     )
-                )
+                except Exception:
+                    # If the sequence index cannot be committed, remove the unmatched
+                    # image so the archive cannot contain a frame with no index row.
+                    frame_path.unlink(missing_ok=True)
+                    raise
+                session.captured_bytes += frame_bytes
                 next_capture += frame_interval
                 now = time.monotonic()
                 if now > next_capture:
