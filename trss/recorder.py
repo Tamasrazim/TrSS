@@ -38,7 +38,7 @@ except ImportError as exc:  # Make a missing install helpful for people running 
 APP_NAME = "TrSS Data Recorder"
 APP_VERSION = "0.1.0"
 CONSENT_POLICY_VERSION = "2026-10-14"
-FPS_OPTIONS = ("5", "10", "15", "30")
+SAMPLE_RATE_OPTIONS = ("5", "10", "15", "30")
 DURATION_OPTIONS = ("5", "10", "15", "30")
 STOP_HOTKEY_TEXT = "Ctrl + Alt + F10"
 HOTKEY_VK = 0x79  # F10. Checked while the capture window is minimized.
@@ -583,7 +583,7 @@ class TrSSRecorderApp:
         self.game_var = tk.StringVar()
         self.scene_var = tk.StringVar()
         self.window_var = tk.StringVar()
-        self.fps_var = tk.StringVar(value="10")
+        self.sample_rate_var = tk.StringVar(value="10")
         self.duration_var = tk.StringVar(value="10")
         self.output_var = tk.StringVar(
             value=str(Path.home() / "Documents" / "TrSS-Captures")
@@ -706,15 +706,15 @@ class TrSSRecorderApp:
         )
         ttk.Button(actions, text="Preview", command=self.preview_window).pack(side="left")
 
-        ttk.Label(setup, text="Frame rate", style="Card.TLabel").grid(
+        ttk.Label(setup, text="Sample rate", style="Card.TLabel").grid(
             row=4, column=0, sticky="w", pady=4
         )
         settings_row = ttk.Frame(setup, style="Card.TFrame")
         settings_row.grid(row=4, column=1, columnspan=2, sticky="ew", pady=4)
         ttk.Combobox(
-            settings_row, textvariable=self.fps_var, state="readonly", values=FPS_OPTIONS, width=8
+            settings_row, textvariable=self.sample_rate_var, state="readonly", values=SAMPLE_RATE_OPTIONS, width=8
         ).pack(side="left")
-        ttk.Label(settings_row, text="frames / second", style="Card.TLabel").pack(
+        ttk.Label(settings_row, text="PNG samples / second", style="Card.TLabel").pack(
             side="left", padx=(8, 26)
         )
         ttk.Label(settings_row, text="Duration", style="Card.TLabel").pack(side="left", padx=(0, 8))
@@ -932,9 +932,9 @@ class TrSSRecorderApp:
             messagebox.showerror(APP_NAME, f"Could not use the output folder: {exc}")
             return
 
-        fps = int(self.fps_var.get())
+        sample_rate = int(self.sample_rate_var.get())
         duration = int(self.duration_var.get())
-        max_frames = fps * duration
+        max_frames = sample_rate * duration
         bytes_equivalent = choice.width * choice.height * 3 * max_frames
         try:
             free_bytes = shutil.disk_usage(output_root).free
@@ -983,7 +983,7 @@ class TrSSRecorderApp:
                 output_root=output_root,
                 game_label=game_label,
                 scene_label=scene_label,
-                fps=fps,
+                sample_rate=sample_rate,
                 duration=duration,
                 keep_unpacked=self.keep_unpacked_var.get(),
             ),
@@ -1000,7 +1000,7 @@ class TrSSRecorderApp:
         output_root: Path,
         game_label: str,
         scene_label: str | None,
-        fps: int,
+        sample_rate: int,
         duration: int,
         keep_unpacked: bool,
     ) -> None:
@@ -1025,7 +1025,7 @@ class TrSSRecorderApp:
                 "output_root": output_root,
                 "game_label": game_label,
                 "scene_label": scene_label,
-                "fps": fps,
+                "sample_rate": sample_rate,
                 "duration": duration,
                 "keep_unpacked": keep_unpacked,
             },
@@ -1045,7 +1045,7 @@ class TrSSRecorderApp:
         output_root: Path,
         game_label: str,
         scene_label: str | None,
-        fps: int,
+        sample_rate: int,
         duration: int,
         keep_unpacked: bool,
     ) -> None:
@@ -1054,7 +1054,7 @@ class TrSSRecorderApp:
         rows: list[dict[str, Any]] = []
         started_utc = utc_now_text()
         started_at: float | None = None
-        frame_interval = 1.0 / fps
+        frame_interval = 1.0 / sample_rate
         next_deadline = time.monotonic() + 1.5  # Give focus/minimize time to settle.
         dropped_slots = 0
         captured_width: int | None = None
@@ -1107,7 +1107,7 @@ class TrSSRecorderApp:
                             "progress",
                             {
                                 "frames": len(rows),
-                                "expected": fps * duration,
+                                "expected": sample_rate * duration,
                                 "elapsed": elapsed,
                                 "duration": duration,
                             },
@@ -1143,7 +1143,7 @@ class TrSSRecorderApp:
 
         ended_utc = utc_now_text()
         elapsed_seconds = round(last_elapsed, 6)
-        observed_fps = (
+        observed_sample_rate = (
             round((len(rows) - 1) / elapsed_seconds, 4)
             if len(rows) > 1 and elapsed_seconds > 0
             else None
@@ -1163,10 +1163,10 @@ class TrSSRecorderApp:
                 "capture_target_title_saved": False,
                 "width": captured_width,
                 "height": captured_height,
-                "requested_fps": fps,
+                "requested_sample_rate": sample_rate,
                 "duration_limit_seconds": duration,
                 "elapsed_seconds": elapsed_seconds,
-                "observed_fps_from_saved_timestamps": observed_fps,
+                "observed_sample_rate_from_saved_timestamps": observed_sample_rate,
                 "captured_frames": len(rows),
                 "missed_capture_slots": dropped_slots,
                 "frame_encoding": "PNG RGB",
@@ -1223,7 +1223,7 @@ class TrSSRecorderApp:
                     "session_dir": str(session_dir) if session_dir.exists() else None,
                     "frames": len(rows),
                     "elapsed": elapsed_seconds,
-                    "observed_fps": observed_fps,
+                    "observed_sample_rate": observed_sample_rate,
                     "dropped_slots": dropped_slots,
                     "status": status,
                     "error": error_summary,
@@ -1259,7 +1259,7 @@ class TrSSRecorderApp:
                     summary = (
                         f"Capture bundle created and ZIP integrity checked.\n\n"
                         f"Frames: {payload['frames']}\n"
-                        f"Observed rate: {payload['observed_fps'] or 'not available'} FPS\n"
+                        f"Observed capture rate: {payload['observed_sample_rate'] or 'not available'} FPS\n"
                         f"Skipped capture slots: {payload['dropped_slots']}\n"
                         f"Status: {payload['status']}\n\n"
                         f"File: {payload['zip_path']}"
