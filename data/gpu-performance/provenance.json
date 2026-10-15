@@ -1,0 +1,27 @@
+{
+  "dataset_name": "TrSS GPU Performance Seed",
+  "version": "0.1.0",
+  "source": "Tom's Hardware GPU Benchmarks Hierarchy 2026; values transcribed from the rasterization and ray-tracing summary tables",
+  "license": "Source measurements remain attributed to the publisher; redistribution and automated extraction must follow the publisher's terms. TrSS-authored schema and validation code are part of this repository.",
+  "source_url": "https://www.tomshardware.com/reviews/gpu-hierarchy,4388.html",
+  "source_published": "2026-06-24",
+  "retrieved_on": "2026-10-16",
+  "record_count": 132,
+  "gpu_count": 22,
+  "workloads": [
+    "raster_native",
+    "ray_tracing_native"
+  ],
+  "resolutions": [
+    "1920x1080",
+    "2560x1440",
+    "3840x2160"
+  ],
+  "notes": [
+    "Aggregate geometric-mean FPS, not per-game observations.",
+    "Raster suite uses 11 games; ray-tracing suite uses 8 games.",
+    "Upscaling and frame generation disabled.",
+    "Not suitable as paired-frame training data for the TrSS image reconstruction network.",
+    "The Arc B580/B570 figures are from the same publisher's table and test suite as the other GPUs."
+  ]
+}
