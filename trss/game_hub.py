@@ -1708,7 +1708,7 @@ class GameHubApp:
         ).pack(anchor="w", pady=(3, 0))
         footer_controls = tk.Frame(footer, bg="#10141a")
         footer_controls.pack(side="right", padx=12, pady=8)
-        tk.Label(footer_controls, text="Capture FPS", bg="#10141a", fg=MUTED).pack(side="left", padx=(0, 6))
+        tk.Label(footer_controls, text="Sample rate", bg="#10141a", fg=MUTED).pack(side="left", padx=(0, 6))
         ttk.Combobox(
             footer_controls, textvariable=self.capture_rate_var,
             state="readonly", values=CAPTURE_RATES, width=4,
@@ -2122,7 +2122,7 @@ class GameHubApp:
         worker.start()
         self.overlay.update_metrics(self.last_metrics, game, True)
         self.set_status(
-            f"CAPTURING {game.name} at {session.sample_rate} FPS with no duration or frame-count limit. Press {STOP_CAPTURE_HOTKEY} to stop."
+            f"CAPTURING {game.name} at {session.sample_rate} PNG samples/s with no duration or frame-count limit. Press {STOP_CAPTURE_HOTKEY} to stop."
         )
 
     def stop_capture(self, reason: str = "user_stop") -> None:
@@ -2593,7 +2593,11 @@ class GameHubApp:
                 "status": session.status,
                 "termination_reason": session.error or session.stop_reason,
                 "elapsed_seconds": elapsed,
-                "sample_rate_requested_fps": session.sample_rate,
+                "sample_rate_requested_samples_per_second": session.sample_rate,
+                "sample_rate_note": (
+                    "This is the requested screenshot sampling rate, not the game's FPS or "
+                    "displayed-frame rate."
+                ),
                 "captured_frames": len(session.frame_rows),
                 "performance_samples": len(metrics_rows),
                 "frame_encoding": "lossless RGB PNG",
@@ -2647,6 +2651,7 @@ class GameHubApp:
                 system_metadata=collect_system_metadata(),
                 sequence_rows=session.frame_rows,
                 keep_unpacked=False,
+                performance_rows=metrics_rows,
             )
         except Exception as exc:
             self.events.put((
@@ -2777,7 +2782,8 @@ class GameHubApp:
                     self.overlay.update_metrics(payload, self.selected_game, self.active_capture is not None)
                 elif kind == "capture_progress":
                     self.set_status(
-                        f"CAPTURING · {payload['frames']:,} frames · {payload['elapsed']:.0f}s elapsed · unlimited duration"
+                        f"CAPTURING · {payload['frames']:,} PNG samples · "
+                        f"{payload['elapsed']:.0f}s elapsed · unlimited duration"
                     )
                 elif kind == "capture_review":
                     try:
