@@ -131,6 +131,47 @@ def test_refuses_to_overwrite_unidentified_config(install_tree) -> None:
     assert not (game_dir / "dxgi.dll").exists()
 
 
+def test_missing_manifest_recovery_renames_dll_and_preserves_bytes(install_tree) -> None:
+    game_dir, exe, dll = install_tree
+    target = game_dir / "dxgi.dll"
+    target.write_bytes(b"old-runtime-binary-that-must-be-preserved")
+    config = game_dir / "TrSS.ini"
+    config.write_text(installer.default_config_text(), encoding="utf-8")
+
+    result = installer.disable_unverified_runtime(exe)
+
+    backup = Path(result["backup_path"])
+    assert not target.exists()
+    assert backup.is_file()
+    assert backup.read_bytes() == b"old-runtime-binary-that-must-be-preserved"
+    assert result["file_deleted"] is False
+    assert result["runtime_sha256"] == installer.sha256_file(backup)
+    assert config.is_file()
+    assert not (game_dir / "TrSS" / installer.MANIFEST_NAME).exists()
+
+
+def test_missing_manifest_recovery_refuses_unidentified_folder(install_tree) -> None:
+    game_dir, exe, _dll = install_tree
+    target = game_dir / "dxgi.dll"
+    target.write_bytes(b"could-belong-to-another-tool")
+    (game_dir / "TrSS.ini").write_text("[OtherTool]\nProduct=NotTrSS\n", encoding="utf-8")
+
+    with pytest.raises(installer.RuntimeInstallError, match="no recognizable TrSS.ini"):
+        installer.disable_unverified_runtime(exe)
+
+    assert target.read_bytes() == b"could-belong-to-another-tool"
+
+
+def test_missing_manifest_recovery_refuses_if_manifest_exists(install_tree) -> None:
+    game_dir, exe, _dll = install_tree
+    installer.install_runtime(exe, _dll, d3d11_compatibility_confirmed=True)
+
+    with pytest.raises(installer.RuntimeInstallError, match="Use the normal Uninstall"):
+        installer.disable_unverified_runtime(exe)
+
+    assert (game_dir / "dxgi.dll").is_file()
+
+
 def test_uninstall_removes_only_verified_dll_and_preserves_user_settings(install_tree) -> None:
     game_dir, exe, dll = install_tree
     installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)

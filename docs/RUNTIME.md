@@ -27,6 +27,8 @@ The installer places dxgi.dll beside the chosen executable, creates TrSS.ini, pr
 
 Use **Uninstall runtime** to remove TrSS. It deletes only the dxgi.dll whose checksum matches the TrSS installation manifest, then preserves TrSS.ini and all presets. If the DLL has changed since installation, the uninstaller refuses to delete it automatically.
 
+If the manifest is missing but a valid TrSS.ini remains, the uninstaller now offers a **reversible recovery**: it can rename the local dxgi.dll to a backup filename, preserving the bytes and SHA-256 instead of deleting an unverified file. This prevents Windows from loading that local proxy on the next launch. The dialog names the exact file and warns that a different graphics shim may also be disabled if the wrong folder was selected. If TrSS.ini is also missing or unrecognized, recovery refuses to change the DLL.
+
 ## In-game menu and controls
 
 Press **Ctrl + Alt + Page Up** to show or hide the menu. The initial menu exposes these live controls:

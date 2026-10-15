@@ -301,6 +301,66 @@ def install_runtime(
     }
 
 
+def disable_unverified_runtime(game_executable: str | Path) -> dict[str, Any]:
+    """Disable an unverified local DXGI proxy by renaming it, never deleting it.
+
+    This recovery route is only available when a recognizable TrSS.ini remains
+    beside the selected executable but the install manifest is missing. The DLL
+    is preserved byte-for-byte under a different name so Windows will not load it
+    on the next launch. The user can restore it by renaming it to dxgi.dll.
+    """
+    exe = Path(game_executable).expanduser().resolve()
+    if not IS_WINDOWS:
+        raise RuntimeInstallError("The live runtime installer only supports Windows.")
+    if exe.suffix.casefold() != ".exe" or not exe.is_file():
+        raise RuntimeInstallError("Choose the existing game .exe where TrSS was installed.")
+
+    game_dir = exe.parent
+    runtime_target = game_dir / RUNTIME_DLL_NAME
+    manifest_path = game_dir / TRSS_FOLDER / MANIFEST_NAME
+    config_path = game_dir / CONFIG_NAME
+    if manifest_path.is_file():
+        raise RuntimeInstallError(
+            "A TrSS installation manifest exists. Use the normal Uninstall runtime action."
+        )
+    if not runtime_target.is_file():
+        raise RuntimeInstallError(f"No game-local {RUNTIME_DLL_NAME} was found beside {exe.name}.")
+    try:
+        config_text = config_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise RuntimeInstallError(
+            "The manifest is missing and TrSS.ini could not be verified. No file was changed."
+        ) from exc
+    config_lines = {line.strip().casefold() for line in config_text.splitlines()}
+    if "[trssruntime]" not in config_lines or "product=trss" not in config_lines:
+        raise RuntimeInstallError(
+            "The manifest is missing and no recognizable TrSS.ini was found. "
+            "The DXGI file was left untouched."
+        )
+
+    digest = sha256_file(runtime_target)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = game_dir / f"{RUNTIME_DLL_NAME}.trss-disabled-{stamp}-{digest[:8]}"
+    # Do not overwrite a previous recovery copy.
+    suffix = 1
+    while backup.exists():
+        backup = game_dir / f"{RUNTIME_DLL_NAME}.trss-disabled-{stamp}-{digest[:8]}-{suffix}"
+        suffix += 1
+    try:
+        runtime_target.rename(backup)
+    except OSError as exc:
+        raise RuntimeInstallError(f"Could not preserve and disable {runtime_target}: {exc}") from exc
+
+    return {
+        "game_executable_name": exe.name,
+        "original_runtime_path": str(runtime_target),
+        "backup_path": str(backup),
+        "runtime_sha256": digest,
+        "file_deleted": False,
+        "configuration_preserved": str(config_path),
+    }
+
+
 def uninstall_runtime(game_executable: str | Path) -> dict[str, Any]:
     """Remove only the exact DLL whose checksum was recorded by TrSS."""
     exe = Path(game_executable).expanduser().resolve()
@@ -499,9 +559,58 @@ class RuntimeInstallerApp:
         )
 
     def _uninstall(self) -> None:
+        selected = self.game_path.get()
         try:
-            result = uninstall_runtime(self.game_path.get())
-        except (OSError, RuntimeInstallError, ValueError) as exc:
+            result = uninstall_runtime(selected)
+        except RuntimeInstallError as exc:
+            if "No TrSS installation manifest was found" not in str(exc):
+                messagebox.showerror(APP_NAME, str(exc), parent=self.root)
+                return
+
+            # The DLL cannot be safely deleted without its manifest. Offer a
+            # reversible quarantine only when TrSS.ini still identifies this folder.
+            try:
+                selected_exe = Path(selected).expanduser().resolve()
+                expected_dll = selected_exe.parent / RUNTIME_DLL_NAME
+            except (OSError, ValueError):
+                messagebox.showerror(APP_NAME, str(exc), parent=self.root)
+                return
+            confirmed = messagebox.askyesno(
+                f"{APP_NAME} / Recovery",
+                "The TrSS installation manifest is missing, so the DLL cannot be safely "
+                "verified for deletion.\n\n"
+                "Recovery can instead RENAME (not delete) the game-folder dxgi.dll to a "
+                "backup filename, preventing Windows from loading it on the next launch. "
+                "The file can be restored by renaming it to dxgi.dll. This may also disable "
+                "another graphics shim if the selected folder is wrong.\n\n"
+                f"Target file:\n{expected_dll}\n\n"
+                "Continue only if this is the game folder where you installed TrSS, or you "
+                "accept temporarily disabling that folder's local DXGI shim.",
+                icon="warning",
+                parent=self.root,
+            )
+            if not confirmed:
+                return
+            try:
+                result = disable_unverified_runtime(selected)
+            except (OSError, RuntimeInstallError, ValueError) as recovery_error:
+                messagebox.showerror(APP_NAME, str(recovery_error), parent=self.root)
+                return
+            self.status.set(
+                f"Disabled unverified DXGI proxy for {result['game_executable_name']}; "
+                "the original file is preserved as a backup."
+            )
+            messagebox.showinfo(
+                f"{APP_NAME} / Recovery",
+                "The local DXGI proxy was renamed, not deleted.\n\n"
+                f"Backup:\n{result['backup_path']}\n\n"
+                f"SHA-256:\n{result['runtime_sha256']}\n\n"
+                "Close any running game before relaunching it. To undo this recovery, rename "
+                "the backup file to dxgi.dll after moving or renaming any new dxgi.dll.",
+                parent=self.root,
+            )
+            return
+        except (OSError, ValueError) as exc:
             messagebox.showerror(APP_NAME, str(exc), parent=self.root)
             return
         self.status.set(f"Removed runtime from {result['game_executable_name']}; settings and presets were preserved.")
