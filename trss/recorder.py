@@ -509,16 +509,24 @@ def create_bundle(
     zip_path: Path,
     metadata: dict[str, Any],
     system_metadata: dict[str, Any],
-    sequence_rows: list[dict[str, Any]],
+    sequence_rows: list[dict[str, Any]] | None,
     keep_unpacked: bool,
     performance_rows: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Write reports, hash the files, package them, and verify the ZIP before cleanup."""
     _write_json(session_dir / "metadata.json", metadata)
     _write_json(session_dir / "system.json", system_metadata)
-    with (session_dir / "sequence.jsonl").open("w", encoding="utf-8", newline="\n") as stream:
-        for row in sequence_rows:
-            stream.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    sequence_path = session_dir / "sequence.jsonl"
+    if sequence_rows is None:
+        # The Game Library streams sequence rows during capture to stay memory-safe.
+        if not sequence_path.is_file():
+            raise CaptureError("The streamed sequence.jsonl file is missing.")
+    else:
+        with sequence_path.open("w", encoding="utf-8", newline="\n") as stream:
+            for row in sequence_rows:
+                stream.write(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
     if performance_rows is not None:
         with (session_dir / "performance.jsonl").open(
             "w", encoding="utf-8", newline="\n"
