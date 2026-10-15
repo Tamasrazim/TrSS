@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 
-ProbeOperation = Literal["list-devices", "self-test", "warp-self-test"]
+ProbeOperation = Literal["list-devices", "capability-check", "self-test", "warp-self-test"]
 DirectXApi = Literal["d3d9", "d3d11", "d3d12"]
 
 _DIRECTX_EXECUTABLES: dict[str, str] = {
@@ -84,14 +84,17 @@ def build_probe_command(
     if device_substring is not None:
         if not device_substring.strip():
             raise ValueError("device_substring must not be blank.")
-        if operation != "self-test":
+        if operation not in ("self-test", "capability-check"):
             raise ValueError(
-                "device_substring is only valid for the hardware self-test."
+                "device_substring is only valid for the hardware self-test or capability check."
             )
 
     command = [str(Path(executable))]
+    if operation == "capability-check" and api != "d3d12":
+        raise ValueError("The capability-check operation currently supports Direct3D 12 only.")
     command.append({
         "list-devices": "--list-devices",
+        "capability-check": "--capability-check",
         "self-test": "--self-test",
         "warp-self-test": "--warp-self-test",
     }[operation])
