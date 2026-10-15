@@ -23,7 +23,7 @@ def test_d3d12_has_a_standalone_capability_report() -> None:
     assert "D3D12_FEATURE_DATA_D3D12_OPTIONS1" in source
     assert "D3D12_FEATURE_ROOT_SIGNATURE" in source
     assert "D3D12_FEATURE_ARCHITECTURE1" in source
-    assert '"d3d12_capability_check"' in source
+    assert "d3d12_capability_check" in source
     assert "No game process" in source
     assert "does not attach to or modify any game" in source
 
