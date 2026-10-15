@@ -30,6 +30,15 @@ The three executables are written to:
 
 No prebuilt binary is downloaded or committed.
 
+For convenience, the Windows CI workflow publishes the compiled diagnostics as a temporary artifact named `TrSS-DirectX-Probes-windows-x64`. Download it from the [DirectX build workflow](https://github.com/Tamasrazim/TrSS/actions/workflows/directx12-compile.yml), extract the ZIP, and run the probe directly in PowerShell. This avoids needing to install the TrSS Python environment.
+
+```powershell
+.\trss_dx12_probe.exe --list-devices
+.\trss_dx12_probe.exe --capability-check --device-substring "B580"
+```
+
+Keep PUBG closed while testing, and do not install the separate D3D11 runtime into its folder. The capability command only creates a standalone D3D12 device and queries driver features; it does not attach to a game.
+
 ## Inspect API-specific devices
 
 ```powershell
