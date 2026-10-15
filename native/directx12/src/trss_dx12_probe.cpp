@@ -30,6 +30,8 @@ namespace {
 
 constexpr UINT kElementCount = 1024;
 constexpr UINT kThreadsPerGroup = 64;
+// Keep a broken driver from leaving this diagnostic hung forever.
+constexpr DWORD kFenceWaitTimeoutMs = 30000;
 
 struct AdapterInfo {
     ComPtr<IDXGIAdapter1> adapter;
@@ -59,16 +61,19 @@ private:
     HANDLE handle_ = nullptr;
 };
 
+std::string hresult_text(HRESULT result) {
+    std::ostringstream formatted;
+    formatted << "HRESULT 0x"
+              << std::hex << std::uppercase
+              << static_cast<unsigned long>(static_cast<std::uint32_t>(result));
+    return formatted.str();
+}
+
 void check_hresult(HRESULT result, const char* operation) {
     if (SUCCEEDED(result)) {
         return;
     }
-    std::ostringstream message;
-    message << operation << " failed (HRESULT 0x"
-            << std::hex << std::uppercase
-            << static_cast<unsigned long>(static_cast<std::uint32_t>(result))
-            << ").";
-    throw std::runtime_error(message.str());
+    throw std::runtime_error(std::string(operation) + " failed (" + hresult_text(result) + ").");
 }
 
 std::string wide_to_utf8(const wchar_t* value) {
@@ -528,16 +533,43 @@ void execute_compute_roundtrip(ID3D12Device* device) {
     if (completion_event.get() == nullptr) {
         throw std::runtime_error("Could not create a fence-completion event.");
     }
-    if (fence->GetCompletedValue() < fence_value) {
+
+    // UINT64_MAX is D3D12's sentinel for a removed device. Never map or trust the
+    // readback buffer if the device has been removed or the fence never completes.
+    UINT64 completed_value = fence->GetCompletedValue();
+    if (completed_value == UINT64_MAX) {
+        throw std::runtime_error(
+            "The D3D12 device was removed before the compute fence completed ("
+            + hresult_text(device->GetDeviceRemovedReason()) + ").");
+    }
+    if (completed_value < fence_value) {
         check_hresult(
             fence->SetEventOnCompletion(fence_value, completion_event.get()),
             "ID3D12Fence::SetEventOnCompletion");
-        const DWORD wait_result = WaitForSingleObject(completion_event.get(), INFINITE);
+        const DWORD wait_result = WaitForSingleObject(
+            completion_event.get(), kFenceWaitTimeoutMs);
+        if (wait_result == WAIT_TIMEOUT) {
+            throw std::runtime_error(
+                "Timed out after 30 seconds waiting for the D3D12 compute fence. "
+                "Device removal reason: "
+                + hresult_text(device->GetDeviceRemovedReason()) + ".");
+        }
         if (wait_result != WAIT_OBJECT_0) {
             throw std::runtime_error(
                 "Waiting for GPU completion failed (Win32 result "
                 + std::to_string(wait_result) + ").");
         }
+    }
+
+    completed_value = fence->GetCompletedValue();
+    if (completed_value == UINT64_MAX) {
+        throw std::runtime_error(
+            "The D3D12 device was removed while completing the compute self-test ("
+            + hresult_text(device->GetDeviceRemovedReason()) + ").");
+    }
+    if (completed_value < fence_value) {
+        throw std::runtime_error(
+            "The D3D12 fence event fired before the requested completion value was reached.");
     }
 
     void* mapped_data = nullptr;
@@ -563,6 +595,99 @@ void execute_compute_roundtrip(ID3D12Device* device) {
 
     const D3D12_RANGE no_writes{0, 0};
     readback_buffer->Unmap(0, &no_writes);
+}
+
+
+std::string optional_bool(bool available, bool value) {
+    if (!available) return "null";
+    return value ? "true" : "false";
+}
+
+std::string optional_uint(bool available, UINT value) {
+    return available ? std::to_string(value) : "null";
+}
+
+std::string root_signature_version_name(bool available, D3D_ROOT_SIGNATURE_VERSION version) {
+    if (!available) return "unavailable";
+    if (version == D3D_ROOT_SIGNATURE_VERSION_1_1) return "1.1";
+    if (version == D3D_ROOT_SIGNATURE_VERSION_1_0) return "1.0";
+    return "unknown";
+}
+
+void print_capability_report(const AdapterInfo& adapter, ID3D12Device* device) {
+    // These are documented D3D12 capability queries only. No game process,
+    // swap chain, overlay, injection, or anti-cheat interaction is involved.
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+    const bool options_available = SUCCEEDED(device->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)));
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1{};
+    const bool options1_available = SUCCEEDED(device->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS1, &options1, sizeof(options1)));
+
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature{};
+    root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    const bool root_signature_available = SUCCEEDED(device->CheckFeatureSupport(
+        D3D12_FEATURE_ROOT_SIGNATURE, &root_signature, sizeof(root_signature)));
+
+    D3D12_FEATURE_DATA_ARCHITECTURE1 architecture{};
+    architecture.NodeIndex = 0;
+    const bool architecture_available = SUCCEEDED(device->CheckFeatureSupport(
+        D3D12_FEATURE_ARCHITECTURE1, &architecture, sizeof(architecture)));
+
+    std::cout << "{\n"
+              << "  \"engine\": \"TrSS\",\n"
+              << "  \"api\": \"Direct3D 12\",\n"
+              << "  \"operation\": \"d3d12_capability_check\",\n"
+              << "  \"status\": \"passed\",\n"
+              << "  \"adapter\": " << quote_json(adapter.name) << ",\n"
+              << "  \"vendor_id\": " << quote_json(hex_id(adapter.vendor_id)) << ",\n"
+              << "  \"device_id\": " << quote_json(hex_id(adapter.device_id)) << ",\n"
+              << "  \"device_creation_at_feature_level_12_0\": true,\n"
+              << "  \"highest_reported_shader_model\": "
+              << quote_json(shader_model_name(device)) << ",\n"
+              << "  \"root_signature_query_available\": "
+              << (root_signature_available ? "true" : "false") << ",\n"
+              << "  \"root_signature_version\": "
+              << quote_json(root_signature_version_name(
+                     root_signature_available, root_signature.HighestVersion)) << ",\n"
+              << "  \"options_query_available\": "
+              << (options_available ? "true" : "false") << ",\n"
+              << "  \"resource_binding_tier\": "
+              << optional_uint(options_available, static_cast<UINT>(options.ResourceBindingTier)) << ",\n"
+              << "  \"resource_heap_tier\": "
+              << optional_uint(options_available, static_cast<UINT>(options.ResourceHeapTier)) << ",\n"
+              << "  \"tiled_resources_tier\": "
+              << optional_uint(options_available, static_cast<UINT>(options.TiledResourcesTier)) << ",\n"
+              << "  \"typed_uav_load_additional_formats\": "
+              << optional_bool(options_available, options.TypedUAVLoadAdditionalFormats) << ",\n"
+              << "  \"options1_query_available\": "
+              << (options1_available ? "true" : "false") << ",\n"
+              << "  \"wave_operations_supported\": "
+              << optional_bool(options1_available, options1.WaveOps) << ",\n"
+              << "  \"wave_lane_count_min\": "
+              << optional_uint(options1_available, options1.WaveLaneCountMin) << ",\n"
+              << "  \"wave_lane_count_max\": "
+              << optional_uint(options1_available, options1.WaveLaneCountMax) << ",\n"
+              << "  \"total_wave_lane_count\": "
+              << optional_uint(options1_available, options1.TotalLaneCount) << ",\n"
+              << "  \"int64_shader_ops_supported\": "
+              << optional_bool(options1_available, options1.Int64ShaderOps) << ",\n"
+              << "  \"architecture_query_available\": "
+              << (architecture_available ? "true" : "false") << ",\n"
+              << "  \"uma\": "
+              << optional_bool(architecture_available, architecture.UMA) << ",\n"
+              << "  \"cache_coherent_uma\": "
+              << optional_bool(architecture_available, architecture.CacheCoherentUMA) << ",\n"
+              << "  \"tile_based_renderer\": "
+              << optional_bool(architecture_available, architecture.TileBasedRenderer) << ",\n"
+              << "  \"note\": "
+              << quote_json(
+                     "This is a standalone API capability report, not a game-compatibility "
+                     "test or benchmark. It does not attach to or modify any game, inject a "
+                     "DLL, or interact with anti-cheat. A passing D3D12 check does not mean "
+                     "the separate TrSS D3D11 live runtime is compatible.")
+              << "\n}\n";
 }
 
 void print_self_test_report(
@@ -622,12 +747,14 @@ void print_usage() {
         << "TrSS Direct3D 12 compute bring-up\n\n"
         << "Usage:\n"
         << "  trss_dx12_probe.exe --list-devices\n"
+        << "  trss_dx12_probe.exe --capability-check [--device-substring NAME]\n"
         << "  trss_dx12_probe.exe --self-test [--device-substring NAME]\n"
         << "  trss_dx12_probe.exe --warp-self-test\n\n"
-        << "The hardware self-test requires one uniquely selected D3D12-capable "
-           "adapter whose name contains 'Arc', unless --device-substring is given.\n"
+        << "The capability check queries the selected hardware adapter without opening a game.\n"
+        << "The hardware self-test runs a compute/readback roundtrip on one uniquely selected "
+           "D3D12-capable adapter whose name contains 'Arc', unless --device-substring is given.\n"
         << "The WARP test uses a software adapter for CI and is not GPU performance "
-           "validation.\n";
+           "validation. Choose exactly one operation.\n";
 }
 
 } // namespace
@@ -635,6 +762,7 @@ void print_usage() {
 int main(int argc, char** argv) {
     try {
         bool list_devices = false;
+        bool capability_check = false;
         bool self_test = false;
         bool warp_self_test = false;
         std::string device_substring;
@@ -646,6 +774,8 @@ int main(int argc, char** argv) {
                 return 0;
             } else if (argument == "--list-devices") {
                 list_devices = true;
+            } else if (argument == "--capability-check") {
+                capability_check = true;
             } else if (argument == "--self-test") {
                 self_test = true;
             } else if (argument == "--warp-self-test") {
@@ -664,15 +794,16 @@ int main(int argc, char** argv) {
         }
 
         const int selected_modes =
-            static_cast<int>(list_devices) + static_cast<int>(self_test)
-            + static_cast<int>(warp_self_test);
-        if (selected_modes > 1) {
+            static_cast<int>(list_devices) + static_cast<int>(capability_check)
+            + static_cast<int>(self_test) + static_cast<int>(warp_self_test);
+        if (selected_modes != 1) {
             throw std::runtime_error(
-                "Choose only one of --list-devices, --self-test, or --warp-self-test.");
+                "Choose exactly one of --list-devices, --capability-check, --self-test, "
+                "or --warp-self-test.");
         }
         if (!device_substring.empty() && (list_devices || warp_self_test)) {
             throw std::runtime_error(
-                "--device-substring is only valid with the hardware --self-test.");
+                "--device-substring is only valid with --capability-check or the hardware --self-test.");
         }
 
         if (list_devices) {
@@ -693,8 +824,6 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        // No mode means the real-hardware self-test, not a software fallback.
-        (void)self_test;
         const auto adapters = enumerate_adapters();
         const std::size_t selected_index =
             choose_hardware_adapter(adapters, device_substring);
@@ -708,7 +837,11 @@ int main(int argc, char** argv) {
                 IID_PPV_ARGS(&device)),
             "D3D12CreateDevice (hardware)");
 
-        print_self_test_report(adapter, device.Get(), false);
+        if (capability_check) {
+            print_capability_report(adapter, device.Get());
+        } else {
+            print_self_test_report(adapter, device.Get(), false);
+        }
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "TrSS Direct3D 12 error: " << error.what() << '\n';
