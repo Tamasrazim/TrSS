@@ -1307,6 +1307,11 @@ def _format_bytes(value: Any) -> str:
 
 
 def _hex_rgb(image_path: str | None) -> str:
+    # Some Windows game entries have no usable icon path. Pillow's Image.open(None)
+    # can raise AttributeError internally, so handle missing paths before calling it.
+    if not image_path:
+        return "#aeb8c8"
+
     try:
         with Image.open(image_path) as image:
             small = image.convert("RGBA").resize((24, 24), Image.Resampling.LANCZOS)
@@ -1328,7 +1333,8 @@ def _hex_rgb(image_path: str | None) -> str:
             color = Counter(palette).most_common(1)[0][0]
             r, g, b = color
             return f"#{r:02x}{g:02x}{b:02x}"
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, AttributeError):
+        # Damaged, unreadable, or unsupported icons should never stop the game library.
         return "#aeb8c8"
 
 
