@@ -200,3 +200,33 @@ def test_packaging_headroom_keeps_room_for_a_second_copy_of_the_frames() -> None
     assert not _has_packaging_headroom(reserve + 9_999, 10_000)
     assert _has_packaging_headroom(100, 50, reserve_bytes=50)
     assert not _has_packaging_headroom(99, 50, reserve_bytes=50)
+
+
+def test_bundle_preserves_prebuilt_streamed_sequence_file(tmp_path: Path) -> None:
+    session_dir = tmp_path / "streamed-session"
+    (session_dir / "frames").mkdir(parents=True)
+    (session_dir / "frames" / "frame-000000.png").write_bytes(b"frame")
+    expected_row = {
+        "frame_id": 0,
+        "timestamp": 0.0,
+        "color": "frames/frame-000000.png",
+    }
+    (session_dir / "sequence.jsonl").write_text(
+        json.dumps(expected_row, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    zip_path = tmp_path / "streamed-session.zip"
+
+    create_bundle(
+        session_dir=session_dir,
+        zip_path=zip_path,
+        metadata={"session": {"captured_frames": 1}},
+        system_metadata={},
+        sequence_rows=None,
+        keep_unpacked=True,
+    )
+
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        saved = archive.read("streamed-session/sequence.jsonl").decode("utf-8")
+    assert saved == json.dumps(expected_row, separators=(",", ":")) + "\n"
+    assert verify_bundle_archive(zip_path)["verified"] is True
