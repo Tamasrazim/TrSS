@@ -1924,6 +1924,11 @@ class GameHubApp:
         }.get(source, 0)
 
     def add_folder(self) -> None:
+        # All discovery actions share one cancellation event. Keep them serial so
+        # cancelling one scan cannot unexpectedly interrupt or revive another.
+        if self.scan_thread and self.scan_thread.is_alive():
+            messagebox.showwarning(APP_NAME, "A game scan is already running.")
+            return
         folder = filedialog.askdirectory(
             title="Choose a folder containing installed games",
             initialdir=str(Path.home()),
@@ -1931,6 +1936,7 @@ class GameHubApp:
         )
         if not folder:
             return
+        self.scan_stop.clear()
         root = Path(folder)
         if str(root) not in self.custom_roots:
             self.custom_roots.append(str(root))
@@ -1941,7 +1947,10 @@ class GameHubApp:
             self._prepare_icons(added)
             self.events.put(("folder_done", {"root": str(root), "games": added}))
 
-        threading.Thread(target=work, name="TrSS-Added-Folder-Scan", daemon=True).start()
+        self.scan_thread = threading.Thread(
+            target=work, name="TrSS-Added-Folder-Scan", daemon=True
+        )
+        self.scan_thread.start()
 
     def scan_all_drives(self) -> None:
         if self.scan_thread and self.scan_thread.is_alive():
@@ -2865,7 +2874,10 @@ class GameHubApp:
         self._shutdown()
 
     def _close_after_capture(self) -> None:
-        if self.active_capture:
+        # Finishing a capture also includes the required graphics review and ZIP
+        # verification. Do not destroy the UI in the short gap between sampling
+        # ending and the review dialog appearing, or while the bundle is packaged.
+        if self.active_capture or self.pending_review_session is not None:
             self.root.after(400, self._close_after_capture)
         else:
             self._shutdown()
