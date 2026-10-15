@@ -10,7 +10,7 @@ Some store-managed, encrypted, Microsoft Store, anti-cheat, or launcher-dependen
 
 ## Live monitoring: what is and is not measured
 
-The click-through overlay displays measurements the local Windows system exposes: system CPU, the selected process's CPU and working-set memory, system memory, and process GPU utilization / dedicated GPU memory when Windows performance counters expose those counters.
+The click-through overlay displays measurements the local Windows system exposes: system CPU, the selected process's CPU and working-set memory, system memory, and process GPU utilization / dedicated GPU memory when Windows performance counters expose those counters. The capture-rate selector is a PNG screenshot sampling rate in samples per second, never the game's FPS.
 
 **Native TrSS game FPS, application FPS, frametime, and 1% lows are not implemented yet.** They remain null/unavailable; TrSS does not infer them from screenshot rate, monitor refresh, or GPU load. The recorder also does not capture renderer-native depth, motion vectors, temporal history, or paired reference renders. A screenshot is not a substitute for those buffers.
 
@@ -61,7 +61,7 @@ Each session ZIP contains:
 | `SHA256SUMS.txt` | SHA-256 hashes of the packaged files. |
 | `README.txt` | Human-readable bundle contents and privacy limitations. |
 
-The shared local matrix is written to `%LOCALAPPDATA%\TrSS\GameLibrary\matrix\game-matrix.csv` and `game-matrix.jsonl`. The CSV is a flat one-row-per-recording table for spreadsheet and research analysis; JSONL retains each nested matrix row. Use **Matrix folder** in the app to open it. These files stay on the machine unless you choose to share them.
+The shared local matrix is written to `%LOCALAPPDATA%\TrSS\GameLibrary\matrix\game-matrix.csv` and `game-matrix.jsonl`. The CSV is a flat one-row-per-recording table for spreadsheet and research analysis; JSONL retains each nested matrix row. Use **Matrix folder** in the app to open it. These files stay on the machine unless you choose to share them. The bundle's SHA-256 manifest is checked against every archived file after ZIP creation; the unpacked capture folder is not removed until archive verification succeeds. The Game Library includes its collected counter samples in `performance.jsonl`.
 
 The bundle does not include the absolute game install path, an imported config file's full path, the raw window title, audio, microphone input, clipboard contents, hostname, account name, IP address, or device serial numbers. Screenshot contents can still show private messages, account details, or third-party content, so review them before sharing.
 
@@ -85,4 +85,4 @@ To launch the older single-window capture utility directly, use **trss-window-re
 
 ## Portable Windows build and verification
 
-The **Build TrSS Game Library** workflow runs the project tests, builds a one-file Windows x64 executable, and creates a SHA-256 checksum. The workflow artifact is available on the GitHub Actions run; the tagged release path is optional and is not required to test the executable. A successful CI build does not replace real-machine validation across Windows versions, GPUs/drivers, store launchers, fullscreen modes, config formats, or long captures. FPS/frametime, renderer buffers, and a broad catalogue of game-specific config adapters are still engineering work.
+The **Build TrSS Game Library** workflow runs the project tests, builds a one-file Windows x64 executable, and creates a SHA-256 checksum. Bundle checks verify archive CRCs, safe archive paths, manifest coverage, and the SHA-256 digest of every packaged file. The workflow artifact is available on the GitHub Actions run; the tagged release path is optional and is not required to test the executable. A successful CI build does not replace real-machine validation across Windows versions, GPUs/drivers, store launchers, fullscreen modes, config formats, or long captures. FPS/frametime, renderer buffers, and a broad catalogue of game-specific config adapters are still engineering work.
