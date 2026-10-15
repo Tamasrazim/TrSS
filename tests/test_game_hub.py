@@ -7,6 +7,7 @@ from PIL import Image
 
 from trss.game_hub import (
     GameEntry,
+    _SequenceLog,
     _friendly_metric,
     _hex_rgb,
     _name_key,
@@ -131,3 +132,21 @@ def test_capture_folder_setting_does_not_accept_a_file_as_a_folder(tmp_path: Pat
         assert "existing absolute capture folder" in str(exc)
     else:
         raise AssertionError("A file path must not be accepted as the capture directory")
+
+
+def test_sequence_log_streams_frame_rows_to_disk(tmp_path: Path) -> None:
+    sequence_path = tmp_path / "session" / "sequence.jsonl"
+    rows = _SequenceLog(sequence_path)
+
+    assert len(rows) == 0
+    assert not rows
+    rows.append({"frame_id": 0, "color": "frames/frame-000000.png"})
+    rows.append({"frame_id": 1, "color": "frames/frame-000001.png"})
+
+    saved = [json.loads(line) for line in sequence_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2
+    assert rows
+    assert saved == [
+        {"frame_id": 0, "color": "frames/frame-000000.png"},
+        {"frame_id": 1, "color": "frames/frame-000001.png"},
+    ]
