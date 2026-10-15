@@ -211,10 +211,12 @@ def test_bundle_preserves_prebuilt_streamed_sequence_file(tmp_path: Path) -> Non
         "timestamp": 0.0,
         "color": "frames/frame-000000.png",
     }
-    (session_dir / "sequence.jsonl").write_text(
+    sequence_file = session_dir / "sequence.jsonl"
+    sequence_file.write_text(
         json.dumps(expected_row, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
+    expected_sequence_bytes = sequence_file.read_bytes()
     zip_path = tmp_path / "streamed-session.zip"
 
     create_bundle(
@@ -227,6 +229,7 @@ def test_bundle_preserves_prebuilt_streamed_sequence_file(tmp_path: Path) -> Non
     )
 
     with zipfile.ZipFile(zip_path, "r") as archive:
-        saved = archive.read("streamed-session/sequence.jsonl").decode("utf-8")
-    assert saved == json.dumps(expected_row, separators=(",", ":")) + "\n"
+        saved = archive.read("streamed-session/sequence.jsonl")
+    # Preserve the original file bytes; newline style may be LF or CRLF on Windows.
+    assert saved == expected_sequence_bytes
     assert verify_bundle_archive(zip_path)["verified"] is True
