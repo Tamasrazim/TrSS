@@ -1131,7 +1131,8 @@ void set_menu_cursor(bool visible);
 
 LRESULT CALLBACK runtime_window_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     const bool visible = g_menuVisible.load();
-    if (message == WM_KEYDOWN && wParam == VK_PRIOR && (lParam & (1LL << 30)) == 0 &&
+    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wParam == VK_PRIOR &&
+        (lParam & (1LL << 30)) == 0 &&
         (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
         g_menuVisible = !g_menuVisible.load();
         set_menu_cursor(g_menuVisible.load());
