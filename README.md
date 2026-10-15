@@ -6,7 +6,7 @@ TrSS is an experimental, local-first neural-rendering research engine targeting 
 
 TrSS keeps its first-party PyTorch training pipeline, paired-frame dataset loader, checkpoint and inference tooling, frame/tensor contracts, temporal-history management, GPU diagnostics, an experimental Vulkan/XMX research backend, and native Windows API probes for legacy Direct3D 9, Direct3D 11, and Direct3D 12.
 
-> **Current status — 14 October 2026:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. No trained weights or paired dataset are bundled. The first-party Windows x64 DXGI/D3D11 runtime now has flip-model back-buffer selection, resource guards, x64 executable validation, and checksum-aware uninstall; its native build and installer tests pass in CI. The live runtime still applies conventional post-processing, not the PyTorch model. Real game testing, live depth/motion/history acquisition, trained-model integration, and physical Arc B580 validation remain outstanding.
+> **Current status — 15 October 2026:** the first-party model is still a trainable 2× frame-reconstruction baseline with a simple temporal blend. It is **not** yet a photorealistic neural renderer. No trained weights or paired dataset are bundled. The first-party Windows x64 DXGI/D3D11 runtime now has flip-model back-buffer selection, resource guards, x64 executable validation, and checksum-aware uninstall; its native build and installer tests pass in CI. The live runtime still applies conventional post-processing, not the PyTorch model. Real game testing, live depth/motion/history acquisition, trained-model integration, and physical Arc B580 validation remain outstanding.
 
 TrSS is independent research software and is not affiliated with, endorsed by, or a product of Intel or NVIDIA.
 
@@ -18,7 +18,7 @@ TrSS is independent research software and is not affiliated with, endorsed by, o
 ![Animated 3D neural renderer progress bar](assets/progress-3d.svg)
 
 
-This is an engineering roadmap estimate, not a measured performance figure, test-coverage score, or claim that real-time neural rendering already works. The latest renderer work improves the experimental runtime's flip-model back-buffer handling and resource guards, validates the target executable's x64 PE architecture before installation, and tests the installer's PE-signature checks. The native runtime build and installer tests pass in CI, but that only proves the tested source compiles and the installer checks pass. It does not verify that a real game can use the proxy. Because the core neural-model integration, live game-buffer acquisition, and physical Arc B580 validation remain incomplete, the overall estimate stays at 65%. The light sweep in the progress graphic is decorative animation.
+This is an engineering roadmap estimate, not a measured performance figure, test-coverage score, or claim that real-time neural rendering already works. The latest renderer work improves the experimental runtime's flip-model back-buffer handling and resource guards, validates the target executable's x64 PE architecture before installation, and tests the installer's PE-signature checks. Recorder changes also ensure sampled Windows counters are included in the game bundle and the archive's SHA-256 manifest is checked before cleanup. The native runtime build and installer tests pass in CI, but that only proves the tested source compiles and the installer checks pass. It does not verify that a real game can use the proxy. Because the core neural-model integration, live game-buffer acquisition, and physical Arc B580 validation remain incomplete, the overall estimate stays at 65%. The light sweep in the progress graphic is decorative animation.
 
 | Workstream | Current status |
 | --- | --- |
@@ -37,7 +37,7 @@ This is an engineering roadmap estimate, not a measured performance figure, test
 | First-party per-game live graphics runtime | Experimental Windows x64 D3D11/DXGI prototype; flip-model back-buffer selection and resource guards added; native build passes CI; actual game compatibility unverified |
 | Runtime installer safety | x64 PE target validation, existing-`dxgi.dll` refusal, SHA-256 manifest, checksum-aware removal, and installer tests implemented |
 | Verified neural-rendering model and compatible weights | Trainable model code exists; no trained checkpoint or dataset is bundled or validated |
-| Game Library recorder and local session bundles | Game discovery, opt-in screenshot sampling, available Windows counters, graphics-profile review, hashed ZIP bundles, and local CSV/JSONL matrix are implemented; actual PC/game validation remains |
+| Game Library recorder and local session bundles | Game discovery/launch, configurable local capture destination, opt-in PNG samples, timestamped `performance.jsonl`, graphics-profile review, complete SHA-256 ZIP verification, and local CSV/JSONL matrix are implemented; actual PC/game validation remains |
 | Recorder performance measurements | CPU, memory, and some per-process GPU/VRAM counters when Windows exposes them; sample rate is not game FPS |
 | Native game FPS, frametime, and 1% lows | Not implemented; missing values remain unavailable rather than guessed |
 | Renderer-native capture for neural training | Not implemented: game color/depth/motion/history buffers and paired reference frames are not produced by the recorder |
@@ -45,7 +45,7 @@ This is an engineering roadmap estimate, not a measured performance figure, test
 | Live game-frame inputs for neural inference | Not yet implemented: real live color/depth/motion/history feeding the trained PyTorch model is outstanding |
 | Visual-quality, latency, and performance validation on a physical Arc B580 | Not yet completed |
 
-The recorder has its own status and next-step guide in [docs/RECORDER-README.md](docs/RECORDER-README.md). Its core capture/matrix workflow is implemented, but there is deliberately no recorder-completion percentage while native frame-event telemetry and on-machine compatibility validation remain unfinished.
+The recorder has its own status and next-step guide in [docs/RECORDER-README.md](docs/RECORDER-README.md). Its core capture, persistent output-folder selection, telemetry-bundle, graphics-matrix, and archive-integrity workflows are implemented. There is deliberately no recorder-completion percentage while native frame-event telemetry, long-session validation, and real-game compatibility testing remain unfinished.
 
 TrSS is independent research software. The engine must not label a conventional filter or generic super-resolution model as neural rendering.
 
