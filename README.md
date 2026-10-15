@@ -223,6 +223,14 @@ trss graphics-probe --api d3d11 --list-devices
 trss graphics-probe --api d3d12 --list-devices
 ```
 
+For the D3D12 hardware capabilities report, without opening or modifying any game, run:
+
+```powershell
+trss graphics-probe --api d3d12 --capability-check --device-substring B580
+```
+
+This reports the selected GPU's D3D12 feature level, shader model, root-signature version, resource tiers, wave support, and architecture flags. It is a standalone diagnostic, not a compatibility test for PUBG. **Do not install the current TrSS D3D11 proxy in PUBG or other anti-cheat-protected games.**
+
 Run hardware smoke tests on the Arc adapter:
 
 ```powershell
