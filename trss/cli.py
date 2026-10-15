@@ -206,6 +206,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="list the devices reported by the selected DirectX API",
     )
     dx12_modes.add_argument(
+        "--capability-check", action="store_true",
+        help="query the selected hardware adapter's D3D12 capabilities without opening a game",
+    )
+    dx12_modes.add_argument(
         "--self-test", action="store_true",
         help="run the selected API's hardware smoke test (D3D9 render path or D3D11/12 compute)",
     )
@@ -215,7 +219,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     dx12_probe.add_argument(
         "--device-substring",
-        help="optional unique hardware adapter-name substring for --self-test",
+        help="optional unique hardware adapter-name substring for --self-test or --capability-check",
     )
     dx12_probe.add_argument(
         "--executable", type=Path,
@@ -1234,9 +1238,13 @@ def _run_dx12_probe(args: argparse.Namespace) -> int:
 
     if args.api == "d3d9" and args.warp_self_test:
         raise ValueError("Direct3D 9 has no WARP compute test; use an actual D3D9-capable adapter.")
+    if args.capability_check and args.api != "d3d12":
+        raise ValueError("The capability-check operation currently supports Direct3D 12 only.")
 
     if args.list_devices:
         operation = "list-devices"
+    elif args.capability_check:
+        operation = "capability-check"
     elif args.warp_self_test:
         operation = "warp-self-test"
     else:
