@@ -1224,6 +1224,7 @@ class _SequenceLog:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.count = 0
+        self.offset = 0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text("", encoding="utf-8", newline="")
 
@@ -1232,16 +1233,16 @@ class _SequenceLog:
         # write if the drive is full. That keeps prior frame records usable.
         line = (json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         try:
-            starting_size = self.path.stat().st_size
             with self.path.open("ab") as stream:
                 stream.write(line)
         except OSError:
             try:
                 with self.path.open("r+b") as stream:
-                    stream.truncate(locals().get("starting_size", 0))
+                    stream.truncate(self.offset)
             except OSError:
                 pass
             raise
+        self.offset += len(line)
         self.count += 1
 
     def __len__(self) -> int:
