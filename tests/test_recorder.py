@@ -10,6 +10,7 @@ import pytest
 from trss.recorder import (
     CaptureError,
     _bundle_readme,
+    _has_packaging_headroom,
     create_bundle,
     make_sequence_row,
     safe_label,
@@ -191,3 +192,11 @@ def test_bundle_verification_detects_content_changed_after_packaging(tmp_path: P
 
     with pytest.raises(CaptureError, match="SHA-256 verification failed"):
         verify_bundle_archive(zip_path)
+
+
+def test_packaging_headroom_keeps_room_for_a_second_copy_of_the_frames() -> None:
+    reserve = 512 * 1024 * 1024
+    assert _has_packaging_headroom(reserve + 10_000, 10_000)
+    assert not _has_packaging_headroom(reserve + 9_999, 10_000)
+    assert _has_packaging_headroom(100, 50, reserve_bytes=50)
+    assert not _has_packaging_headroom(99, 50, reserve_bytes=50)
