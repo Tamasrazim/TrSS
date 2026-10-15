@@ -1218,6 +1218,39 @@ class PerformanceReader:
     def close(self) -> None:
         self.pdh.close()
 
+class _SequenceLog:
+    """Persist each frame record as it is captured instead of growing a frame list in RAM."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.count = 0
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("", encoding="utf-8", newline="")
+
+    def append(self, row: dict[str, Any]) -> None:
+        # Build the complete line before touching the file, then roll back a partial
+        # write if the drive is full. That keeps prior frame records usable.
+        line = (json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        try:
+            starting_size = self.path.stat().st_size
+            with self.path.open("ab") as stream:
+                stream.write(line)
+        except OSError:
+            try:
+                with self.path.open("r+b") as stream:
+                    stream.truncate(locals().get("starting_size", 0))
+            except OSError:
+                pass
+            raise
+        self.count += 1
+
+    def __len__(self) -> int:
+        return self.count
+
+    def __bool__(self) -> bool:
+        return self.count > 0
+
+
 @dataclass
 class CaptureSession:
     """Mutable state for an unlimited-duration, participant-started capture."""
@@ -1230,7 +1263,7 @@ class CaptureSession:
     stop_event: threading.Event
     started_utc: str
     started_monotonic: float
-    frame_rows: list[dict[str, Any]]
+    frame_rows: _SequenceLog
     performance_rows: list[dict[str, Any]]
     lock: threading.Lock
     captured_bytes: int = 0
@@ -2191,7 +2224,7 @@ class GameHubApp:
             stop_event=threading.Event(),
             started_utc=utc_now_text(),
             started_monotonic=time.monotonic(),
-            frame_rows=[],
+            frame_rows=_SequenceLog(folder / "sequence.jsonl"),
             performance_rows=[],
             lock=threading.Lock(),
         )
@@ -2731,7 +2764,9 @@ class GameHubApp:
                 zip_path=session.zip_path,
                 metadata=metadata,
                 system_metadata=collect_system_metadata(),
-                sequence_rows=session.frame_rows,
+                # The frame rows have been streamed into sequence.jsonl while
+                # recording, so they do not need to be loaded into RAM again.
+                sequence_rows=None,
                 keep_unpacked=False,
                 performance_rows=metrics_rows,
             )
