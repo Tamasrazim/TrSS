@@ -120,6 +120,19 @@ def pe_architecture(path: str | Path) -> str:
     return f"unsupported (machine=0x{machine:04X}, optional=0x{optional_magic:04X})"
 
 
+def _is_known_unsupported_game(executable: Path) -> bool:
+    """Recognize a known D3D12-only target that must never receive this D3D11 proxy."""
+    # Check both the executable and its nearby folder names; store installs can use
+    # different executable names while preserving the recognizable game directory.
+    labels = [executable.stem, executable.parent.name]
+    labels.extend(parent.name for parent in list(executable.parents)[:4])
+    normalized = [
+        "".join(character.casefold() for character in label if character.isalnum())
+        for label in labels
+    ]
+    return any("blackflagresynced" in label for label in normalized)
+
+
 def find_runtime_dll() -> Path | None:
     """Find the CI-built native DLL or the one bundled into the installer."""
     roots: list[Path] = []
@@ -179,6 +192,11 @@ def install_runtime(
         )
     if pe_architecture(dll) != "x64":
         raise RuntimeInstallError("The compiled TrSS dxgi.dll is not an x64 Windows library.")
+    if _is_known_unsupported_game(exe):
+        raise RuntimeInstallError(
+            "Assassin's Creed Black Flag Resynced requires DirectX 12, but this TrSS runtime "
+            "only supports a limited Direct3D 11/DXGI path. Installation is blocked for this game."
+        )
     if not d3d11_compatibility_confirmed:
         raise RuntimeInstallError(
             "Installation is blocked until you confirm that this game uses a compatible "

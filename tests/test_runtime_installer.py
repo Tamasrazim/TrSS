@@ -28,6 +28,19 @@ def _write_pe(
     return path
 
 
+def test_black_flag_resynced_is_blocked_even_if_user_confirms_d3d11(install_tree, tmp_path: Path) -> None:
+    _, _, dll = install_tree
+    game_dir = tmp_path / "Assassin's Creed Black Flag Resynced"
+    game_dir.mkdir()
+    exe = _write_pe(game_dir / "ACBlackFlagResynced.exe", payload=b"known-d3d12-game")
+
+    with pytest.raises(installer.RuntimeInstallError, match="requires DirectX 12"):
+        installer.install_runtime(exe, dll, d3d11_compatibility_confirmed=True)
+
+    assert not (game_dir / "dxgi.dll").exists()
+    assert not (game_dir / "TrSS.ini").exists()
+
+
 def test_installer_requires_explicit_d3d11_compatibility_confirmation(install_tree) -> None:
     game_dir, exe, dll = install_tree
 

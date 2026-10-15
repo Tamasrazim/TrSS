@@ -19,7 +19,7 @@ The **Build first-party TrSS live runtime** workflow builds both the native dxgi
 1. Launch TrSS-Runtime-Installer.exe.
 2. Choose the actual game executable, not a launcher, shortcut, or setup program.
 3. Confirm that local graphics injection is allowed for that game and that you are not trying to bypass anti-cheat or game protections.
-4. Separately confirm that the specific game uses a compatible **Direct3D 11/DXGI** path. The installer now blocks installation unless this box is checked. Do not select Direct3D 12, Direct3D 9, Vulkan, or OpenGL games; x64 architecture alone does not imply compatibility.
+4. Separately confirm that the specific game uses a compatible **Direct3D 11/DXGI** path. The installer blocks installation unless this box is checked, and it hard-blocks the known DirectX 12 title Assassin's Creed Black Flag Resynced even if the box is checked. Do not select Direct3D 12, Direct3D 9, Vulkan, or OpenGL games; x64 architecture alone does not imply compatibility.
 5. Click **Install runtime**.
 6. Start the game normally. On a supported D3D11/DXGI path, press **Ctrl + Alt + Page Up** to toggle the TrSS menu.
 
