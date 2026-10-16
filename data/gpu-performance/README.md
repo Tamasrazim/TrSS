@@ -1,55 +1,50 @@
-# TrSS GPU-performance seed dataset
+# TrSS GPU performance corpus
 
-This directory contains a **curated seed of 132 aggregate benchmark measurements** (22 GPUs × 2 workloads × 3 output resolutions) transcribed from Tom's Hardware's 2026 GPU hierarchy.
+This directory stores attributed measurements for a **separate GPU-performance estimation/runtime-policy track**.
 
-## What this dataset is—and is not
+## Corpus size
 
-- It is useful for a first GPU-performance profile, workload comparison, runtime policy research, and checking whether a performance-estimation baseline is plausible.
-- FPS values are geometric means across a multi-game suite, **not per-game measurements**. Raster values aggregate 11 games; ray-tracing values aggregate 8 RT games.
-- Results are native-resolution, with upscaling and frame generation off. The article uses an AMD Ryzen 7 9800X3D testbed and a mix of high/ultra settings. Exact API and per-game settings vary.
-- The initial file contains a representative subset of GPUs, not the full source hierarchy. Values are transcribed from the tables and should be checked against the source before being treated as a release-grade corpus.
-- **This is not a valid training dataset for TrSS's image-reconstruction neural network.** FPS numbers contain no paired image target, depth, motion vectors, or history buffers. Do not feed these rows to the super-resolution training loader. Keep this corpus separate for hardware/performance modeling and runtime decisions.
+- `benchmarks.csv`: 132 native gaming FPS measurements across 22 GPUs, 2 workloads, and 3 resolutions.
+- `passmark-g3dmark.csv`: 71 PassMark G3D Mark records across different GPU categories.
+- `passmark-directcompute.csv`: 89 PassMark GPU compute records.
+- **292 measurements** across three distinct schemas.
 
-## Files
+## Sources and measurements
 
-- `benchmarks.csv`: long-form measurements. Each row is one GPU × workload × resolution.
-- `provenance.json`: source and collection notes.
-- `../../scripts/validate_gpu_performance.py`: dependency-free integrity checker.
+### Gaming performance (FPS)
 
-## Schema
+Tom's Hardware's 2026 GPU hierarchy provides geometric-mean native FPS for rasterization and ray tracing at 1080p, 1440p, and 4K. The source describes 11 raster games and 8 RT games, with upscaling and frame generation disabled. Exact APIs/settings vary by game.
 
-| Field | Meaning |
-|---|---|
-| `gpu`, `vendor` | Product label as shown in the source and vendor |
-| `workload` | `raster_native` or `ray_tracing_native` |
-| `resolution`, `width`, `height` | Render resolution |
-| `mean_fps` | Published suite geometric-mean FPS |
-| `statistic`, `game_count` | Aggregation type and number of games |
-| `upscaling`, `frame_generation` | Both disabled for these results |
-| `test_platform` | Source testbed/context; API is not assumed to be uniform |
-| `source_id`, `source_url`, `source_published`, `retrieved_on` | Traceability fields |
+Source: https://www.tomshardware.com/reviews/gpu-hierarchy,4388.html (source last updated 2026-06-24).
 
-## Validate
+### G3D Mark score
 
-Run from the repository root:
+PassMark's public GPU list contains aggregate G3D Mark scores and chart ranks. These are based on submitted PerformanceTest results; configurations are not controlled like a single lab's GPU review. They are not FPS.
+
+Source: https://www.videocardbenchmark.net/gpu_list.php (snapshot date: 2026-10-16; the chart changes over time).
+
+### GPU compute
+
+PassMark's DirectCompute page publishes average operations/second. This is a separate compute benchmark and must not be treated as game FPS or a TrSS neural-reconstruction-kernel measurement.
+
+Source: https://www.videocardbenchmark.net/directCompute.html (snapshot date: 2026-10-16; the chart changes over time).
+
+## Validation
+
+From the repository root, run:
 
 ```bash
 python scripts/validate_gpu_performance.py
 ```
 
-The checker validates schema, numeric ranges, expected source metadata, and duplicate keys. It does not claim to reproduce the publisher's tests.
+This checks schema, row counts, unique keys, positive finite measurements, HTTPS source URLs, and native-resolution metadata. It does not independently reproduce third-party benchmarks.
 
-## Next expansion
+## How this helps TrSS
 
-1. Add individual per-game results only when the source publishes exact FPS and settings.
-2. Add independent sources such as Phoronix, keeping each OS, driver, API, CPU, benchmark, and test date distinct—never merge incomparable numbers into one average.
-3. Add driver versions, GPU power, VRAM usage, frame-time percentiles, and 1% lows when explicitly published.
-4. Split evaluation by source/test run, not by adjacent rows from the same suite.
-5. Only then train and evaluate a performance predictor against held-out measurements.
+Keep these measurements in separate target tasks. FPS, G3D Mark and operations/second have different units and test methodologies; a model must not mix them as one target. A future performance predictor should use documented features such as GPU model/class, VRAM, architecture, bandwidth, TDP, driver, API, resolution and graphics settings, then be evaluated on held-out GPUs/test runs.
 
-## Source attribution
+**These performance tables do not train the TrSS image-reconstruction model.** `TrSSTemporalSR` requires paired low-resolution and reference high-resolution images, documented depth, motion vectors and valid temporal history. Benchmark values contain none of those tensors. This data is for the separate performance-estimation track.
 
-- Tom's Hardware, *The GPU benchmarks hierarchy 2026*, last updated 2026-06-24: https://www.tomshardware.com/reviews/gpu-hierarchy,4388.html
-- Phoronix, *Intel Arc Graphics B570 & B580 Gaming Performance On Linux For Mid 2025*: https://www.phoronix.com/review/intel-battlemage-linux-may2025 (research reference for future Linux-specific expansion; its values are not mixed into this Windows-oriented seed table).
+## Provenance
 
-The data are facts/measurements with source URLs retained. Refer to the publisher's terms before redistributing a larger transcription or automated copy of its tables.
+See `provenance.json`. Values remain attributed to their publishers. Confirm publisher terms before redistributing larger or automated transcriptions.
