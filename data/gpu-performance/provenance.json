@@ -1,27 +1,40 @@
 {
-  "dataset_name": "TrSS GPU Performance Seed",
-  "version": "0.1.0",
-  "source": "Tom's Hardware GPU Benchmarks Hierarchy 2026; values transcribed from the rasterization and ray-tracing summary tables",
-  "license": "Source measurements remain attributed to the publisher; redistribution and automated extraction must follow the publisher's terms. TrSS-authored schema and validation code are part of this repository.",
-  "source_url": "https://www.tomshardware.com/reviews/gpu-hierarchy,4388.html",
-  "source_published": "2026-06-24",
-  "retrieved_on": "2026-10-16",
-  "record_count": 132,
-  "gpu_count": 22,
-  "workloads": [
-    "raster_native",
-    "ray_tracing_native"
+  "dataset_name": "TrSS Multi-source GPU Performance Corpus",
+  "version": "0.2.0",
+  "captured_on": "2026-10-16",
+  "total_records": 292,
+  "datasets": [
+    {
+      "file": "benchmarks.csv",
+      "records": 132,
+      "metric": "geometric-mean gaming FPS",
+      "source": "Tom's Hardware GPU Hierarchy 2026",
+      "source_url": "https://www.tomshardware.com/reviews/gpu-hierarchy,4388.html",
+      "source_published": "2026-06-24",
+      "captured_on": "2026-10-16",
+      "notes": "22 GPU models × raster and RT workloads × 1080p/1440p/4K. 11-game raster suite and 8-game RT suite."
+    },
+    {
+      "file": "passmark-g3dmark.csv",
+      "records": 71,
+      "metric": "G3D Mark average score",
+      "source": "PassMark Video Card Benchmarks",
+      "source_url": "https://www.videocardbenchmark.net/gpu_list.php",
+      "source_published": "dynamic live chart",
+      "captured_on": "2026-10-16",
+      "notes": "Public submitted aggregate results; configurations are not a controlled common-platform lab comparison."
+    },
+    {
+      "file": "passmark-directcompute.csv",
+      "records": 89,
+      "metric": "average operations per second",
+      "source": "PassMark GPU Compute / DirectCompute",
+      "source_url": "https://www.videocardbenchmark.net/directCompute.html",
+      "source_published": "dynamic live chart",
+      "captured_on": "2026-10-16",
+      "notes": "Public submitted compute results; not gaming FPS and not a benchmark of the TrSS reconstruction kernel."
+    }
   ],
-  "resolutions": [
-    "1920x1080",
-    "2560x1440",
-    "3840x2160"
-  ],
-  "notes": [
-    "Aggregate geometric-mean FPS, not per-game observations.",
-    "Raster suite uses 11 games; ray-tracing suite uses 8 games.",
-    "Upscaling and frame generation disabled.",
-    "Not suitable as paired-frame training data for the TrSS image reconstruction network.",
-    "The Arc B580/B570 figures are from the same publisher's table and test suite as the other GPUs."
-  ]
+  "model_boundary": "GPU benchmark data is for a separate performance predictor/runtime policy. It is not paired image-supervision data for TrSSTemporalSR.",
+  "redistribution_note": "Benchmark values remain attributed to their publishers. Check publisher terms before redistribution or automated extraction."
 }
