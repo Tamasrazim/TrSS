@@ -1,95 +1,116 @@
 #!/usr/bin/env python3
-"""Validate the curated TrSS GPU performance benchmark CSV without third-party packages."""
+"""Structural validation for the TrSS multi-source GPU performance corpus.
 
+This tool checks data integrity only; it does not rerun publisher benchmarks.
+"""
 from __future__ import annotations
-
 import csv
 import math
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data" / "gpu-performance" / "benchmarks.csv"
-EXPECTED_FIELDS = {
-    "gpu", "vendor", "workload", "resolution", "width", "height", "mean_fps",
-    "statistic", "game_count", "upscaling", "frame_generation", "test_platform",
-    "source_id", "source_url", "source_published", "retrieved_on",
+DATA = ROOT / "data" / "gpu-performance"
+SCHEMAS = {
+    "benchmarks.csv": {
+        "fields": {"gpu","vendor","workload","resolution","width","height","mean_fps","statistic","game_count","upscaling","frame_generation","test_platform","source_id","source_url","source_published","retrieved_on"},
+        "minimum": 132, "exact": 132, "keys": ("gpu","workload","resolution"), "value": "mean_fps",
+    },
+    "passmark-g3dmark.csv": {
+        "fields": {"gpu","vendor","device_class","g3d_mark_score","overall_rank","metric","source_url","source_snapshot_date","retrieved_on","notes"},
+        "minimum": 60, "keys": ("gpu",), "value": "g3d_mark_score",
+    },
+    "passmark-directcompute.csv": {
+        "fields": {"gpu","vendor","device_class","average_ops_per_second","metric","source_url","source_snapshot_date","retrieved_on","notes"},
+        "minimum": 70, "keys": ("gpu",), "value": "average_ops_per_second",
+    },
 }
-VALID_RESOLUTIONS = {"1920x1080": (1920, 1080), "2560x1440": (2560, 1440), "3840x2160": (3840, 2160)}
-VALID_WORKLOADS = {"raster_native", "ray_tracing_native"}
-EXPECTED_ROWS = 132
+RESOLUTIONS = {"1920x1080":(1920,1080), "2560x1440":(2560,1440), "3840x2160":(3840,2160)}
+WORKLOADS = {"raster_native","ray_tracing_native"}
 
-
-def validate(path: Path = DATA) -> list[str]:
-    errors: list[str] = []
-    seen: set[tuple[str, str, str]] = set()
-    count = 0
+def validate_file(name: str, spec: dict) -> tuple[list[str], int]:
+    path = DATA / name
+    errors = []
     try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            if set(reader.fieldnames or []) != EXPECTED_FIELDS:
-                return [f"CSV columns do not match schema: {reader.fieldnames!r}"]
-            for line, row in enumerate(reader, start=2):
-                count += 1
-                prefix = f"line {line}"
-                for field in EXPECTED_FIELDS:
-                    if not (row.get(field) or "").strip():
-                        errors.append(f"{prefix}: missing {field}")
-                key = (row["gpu"], row["workload"], row["resolution"])
-                if key in seen:
-                    errors.append(f"{prefix}: duplicate GPU/workload/resolution key {key!r}")
-                seen.add(key)
-                if row["workload"] not in VALID_WORKLOADS:
-                    errors.append(f"{prefix}: unsupported workload {row['workload']!r}")
-                if row["resolution"] not in VALID_RESOLUTIONS:
-                    errors.append(f"{prefix}: unsupported resolution {row['resolution']!r}")
-                else:
-                    expected_width, expected_height = VALID_RESOLUTIONS[row["resolution"]]
-                    try:
-                        if int(row["width"]) != expected_width or int(row["height"]) != expected_height:
-                            errors.append(f"{prefix}: resolution does not match width/height")
-                    except ValueError:
-                        errors.append(f"{prefix}: width/height must be integers")
-                try:
-                    fps = float(row["mean_fps"])
-                    if not math.isfinite(fps) or fps <= 0 or fps > 1000:
-                        errors.append(f"{prefix}: mean_fps must be finite and in (0, 1000]")
-                except ValueError:
-                    errors.append(f"{prefix}: mean_fps must be numeric")
-                try:
-                    games = int(row["game_count"])
-                    expected_games = 11 if row["workload"] == "raster_native" else 8
-                    if games != expected_games:
-                        errors.append(f"{prefix}: game_count should be {expected_games} for this source suite")
-                except ValueError:
-                    errors.append(f"{prefix}: game_count must be an integer")
-                if row["statistic"] != "geometric_mean_fps":
-                    errors.append(f"{prefix}: unexpected statistic")
-                if row["upscaling"] != "off" or row["frame_generation"] != "off":
-                    errors.append(f"{prefix}: this seed corpus must represent native rendering only")
-                if not row["source_url"].startswith("https://"):
-                    errors.append(f"{prefix}: source_url must be HTTPS")
-                if row["source_published"] != "2026-06-24" or row["retrieved_on"] != "2026-10-16":
-                    errors.append(f"{prefix}: source dates do not match dataset provenance")
+        with path.open("r",encoding="utf-8-sig",newline="") as stream:
+            reader = csv.DictReader(stream)
+            if set(reader.fieldnames or []) != spec["fields"]:
+                return [f"{name}: CSV fields do not match schema"], 0
+            rows = list(reader)
     except OSError as exc:
-        return [f"cannot read {path}: {exc}"]
-    if count != EXPECTED_ROWS:
-        errors.append(f"expected {EXPECTED_ROWS} measurements, found {count}")
-    if len(seen) != count:
-        errors.append("duplicate keys detected")
-    if not errors:
-        print(f"PASS: {count} measurements, {len({key[0] for key in seen})} GPUs, {len(VALID_WORKLOADS)} workloads, {len(VALID_RESOLUTIONS)} resolutions")
-    return errors
+        return [f"{name}: cannot read file: {exc}"], 0
 
+    if len(rows) < spec["minimum"]:
+        errors.append(f"{name}: expected at least {spec['minimum']} rows, found {len(rows)}")
+    if "exact" in spec and len(rows) != spec["exact"]:
+        errors.append(f"{name}: expected exactly {spec['exact']} rows, found {len(rows)}")
+    seen = set()
+    for line,row in enumerate(rows,start=2):
+        prefix=f"{name}:{line}"
+        for field in spec["fields"]:
+            if not (row.get(field) or "").strip():
+                errors.append(f"{prefix}: missing {field}")
+        key=tuple(row[k].strip().casefold() for k in spec["keys"])
+        if key in seen:
+            errors.append(f"{prefix}: duplicate key {key!r}")
+        seen.add(key)
+        try:
+            value=float(row[spec["value"]])
+            if not math.isfinite(value) or value <= 0:
+                errors.append(f"{prefix}: measurement must be positive and finite")
+        except (ValueError,TypeError):
+            errors.append(f"{prefix}: invalid numeric measurement")
+        if not row.get("source_url","").startswith("https://"):
+            errors.append(f"{prefix}: source URL must use HTTPS")
+
+    if name == "benchmarks.csv":
+        if len({r["gpu"] for r in rows}) != 22:
+            errors.append(f"{name}: expected 22 unique GPU models")
+        for line,row in enumerate(rows,start=2):
+            prefix=f"{name}:{line}"
+            if row["workload"] not in WORKLOADS:
+                errors.append(f"{prefix}: unsupported workload")
+            if row["resolution"] not in RESOLUTIONS:
+                errors.append(f"{prefix}: unsupported resolution")
+            else:
+                w,h=RESOLUTIONS[row["resolution"]]
+                try:
+                    if int(row["width"]) != w or int(row["height"]) != h:
+                        errors.append(f"{prefix}: dimensions conflict with resolution")
+                except ValueError:
+                    errors.append(f"{prefix}: dimensions must be integers")
+            try:
+                count=int(row["game_count"])
+                expected=11 if row["workload"]=="raster_native" else 8
+                if count != expected:
+                    errors.append(f"{prefix}: unexpected source suite size")
+            except ValueError:
+                errors.append(f"{prefix}: game_count must be an integer")
+            if row["statistic"] != "geometric_mean_fps":
+                errors.append(f"{prefix}: unexpected statistic")
+            if row["upscaling"] != "off" or row["frame_generation"] != "off":
+                errors.append(f"{prefix}: expected native rendering")
+            if row["source_published"] != "2026-06-24" or row["retrieved_on"] != "2026-10-16":
+                errors.append(f"{prefix}: unexpected source/retrieval date")
+    return errors,len(rows)
 
 def main() -> int:
-    errors = validate()
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
+    problems=[]
+    summary=[]
+    for name,spec in SCHEMAS.items():
+        errors,count=validate_file(name,spec)
+        problems.extend(errors)
+        if not errors:
+            summary.append(f"{name}: PASS ({count} records)")
+    if problems:
+        for problem in problems:
+            print("ERROR: "+problem,file=sys.stderr)
         return 1
+    print("GPU performance corpus structural validation passed.")
+    for line in summary:
+        print(line)
+    print("Note: validates structure only; no third-party benchmark was rerun.")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
